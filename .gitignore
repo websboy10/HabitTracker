@@ -1,0 +1,17 @@
+# Xcode
+#
+# gitignore contributors: scroll through to maintain alphabetized merge
+# sorted sections.
+
+## Build results
+build/
+DerivedData/
+
+## General
+.DS_Store
+*.hmap
+*.ipa
+*.xcuserstate
+
+## Large Files
+openai.chatgpt-0.4.58.vsix
