@@ -76,10 +76,19 @@ struct OnboardingFoundationView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Navigation row with step indicator
             HStack {
-                // Empty space for symmetry (no back button on step 1)
-                Circle()
-                    .fill(Color.clear)
-                    .frame(width: 40, height: 40)
+                // Back / Logout Button
+                Button {
+                    Task {
+                        await AppSessionManager.shared.completeLogout()
+                    }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Color.white.opacity(0.3))
+                        .frame(width: 40, height: 40)
+                        .background(Color.white.opacity(0.05))
+                        .clipShape(Circle())
+                }
 
                 Spacer()
 

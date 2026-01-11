@@ -2,10 +2,10 @@ import SwiftUI
 
 /// The main content view that handles tab navigation.
 struct ContentView: View {
-    
+
     /// Currently selected tab
     @State private var selectedTab: Tab = .home
-    
+
     var body: some View {
         Group {
             if #available(iOS 26.0, *) {
@@ -15,13 +15,19 @@ struct ContentView: View {
                         .tabItem {
                             Label("Home", systemImage: Tab.home.iconName)
                         }
-                    
+
                     GoalsView(selectedTab: $selectedTab, showsCustomTabBar: false)
                         .tag(Tab.goals)
                         .tabItem {
                             Label("Goals", systemImage: Tab.goals.iconName)
                         }
-                    
+
+                    StatsView(selectedTab: $selectedTab, showsCustomTabBar: false)
+                        .tag(Tab.stats)
+                        .tabItem {
+                            Label("Stats", systemImage: Tab.stats.iconName)
+                        }
+
                     SettingsView(selectedTab: $selectedTab, showsCustomTabBar: false)
                         .tag(Tab.settings)
                         .tabItem {
@@ -37,6 +43,8 @@ struct ContentView: View {
                         HomeView(selectedTab: $selectedTab)
                     case .goals:
                         GoalsView(selectedTab: $selectedTab)
+                    case .stats:
+                        StatsView(selectedTab: $selectedTab)
                     case .settings:
                         SettingsView(selectedTab: $selectedTab)
                     }

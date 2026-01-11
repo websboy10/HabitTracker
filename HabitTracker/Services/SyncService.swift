@@ -41,6 +41,10 @@ final class SyncService: ObservableObject {
         // Only sync if user chose cloud storage mode
         guard isCloudSyncEnabled else { return }
         
+        // Ensure authoritative phase: Allow .synchronizing or .running
+        let state = AppSessionManager.shared.state
+        guard state == .synchronizing || state == .running else { return }
+        
         guard supabase.isAuthenticated else {
             syncError = "Not authenticated"
             return
@@ -155,13 +159,16 @@ final class SyncService: ObservableObject {
         for (id, remote) in remoteDict {
             if localDict[id] == nil {
                 let categoryId = remote.categoryId.flatMap { UUID(uuidString: $0) } ?? UUID()
+                let scheduledTime = remote.scheduledTime.flatMap { iso8601Formatter.date(from: $0) }
                 let local = GoalModel(
                     id: id,
                     title: remote.title,
                     categoryId: categoryId,
-                    frequency: remote.frequency,
-                    frequencyCount: remote.frequencyCount ?? 1,
-                    frequencyUnit: remote.frequencyUnit ?? "time",
+                    recurrenceType: remote.recurrenceType ?? "none",
+                    weekdays: remote.weekdays ?? [],
+                    scheduledTime: scheduledTime,
+                    customIntervalDays: remote.customIntervalDays,
+                    monthlyDayOfMonth: remote.monthlyDayOfMonth,
                     status: remote.status ?? "active"
                 )
                 modelContext.insert(local)
@@ -171,9 +178,11 @@ final class SyncService: ObservableObject {
                    let remoteDate = iso8601Formatter.date(from: remoteUpdated),
                    remoteDate > local.updatedAt {
                     local.title = remote.title
-                    local.frequency = remote.frequency
-                    local.frequencyCount = remote.frequencyCount ?? 1
-                    local.frequencyUnit = remote.frequencyUnit ?? "time"
+                    local.recurrenceType = remote.recurrenceType ?? "none"
+                    local.weekdays = remote.weekdays ?? []
+                    local.customIntervalDays = remote.customIntervalDays
+                    local.monthlyDayOfMonth = remote.monthlyDayOfMonth
+                    local.scheduledTime = remote.scheduledTime.flatMap { iso8601Formatter.date(from: $0) }
                     local.status = remote.status ?? "active"
                     if let catId = remote.categoryId, let catUUID = UUID(uuidString: catId) {
                         local.categoryId = catUUID
@@ -191,10 +200,13 @@ final class SyncService: ObservableObject {
                     userId: userId,
                     categoryId: local.categoryId.uuidString,
                     title: local.title,
-                    frequency: local.frequency,
-                    frequencyCount: local.frequencyCount,
-                    frequencyUnit: local.frequencyUnit,
+                    frequency: "daily",
                     status: local.status,
+                    recurrenceType: local.recurrenceType,
+                    weekdays: local.weekdays,
+                    scheduledTime: local.scheduledTime.map { iso8601Formatter.string(from: $0) },
+                    customIntervalDays: local.customIntervalDays,
+                    monthlyDayOfMonth: local.monthlyDayOfMonth,
                     createdAt: iso8601Formatter.string(from: local.createdAt),
                     updatedAt: iso8601Formatter.string(from: local.updatedAt)
                 )
@@ -278,8 +290,33 @@ final class SyncService: ObservableObject {
     
     // MARK: - Individual Operations
     
+
+    
+    /// Sync a single category creation to cloud
+    func syncCategoryCreation(_ category: CategoryModel) async {
+        guard AppSessionManager.shared.state == .running else { return }
+        guard isCloudSyncEnabled else { return }
+        guard let userId = supabase.currentUserId else { return }
+        
+        let dto = CategoryDTO(
+            id: category.id.uuidString,
+            userId: userId,
+            name: category.name,
+            colorHex: category.colorHex,
+            isDefault: category.isDefault,
+            sortOrder: category.sortOrder
+        )
+        
+        do {
+            _ = try await supabase.createCategory(dto)
+        } catch {
+            print("Failed to sync category creation: \(error)")
+        }
+    }
+    
     /// Sync a single goal creation to cloud
     func syncGoalCreation(_ goal: GoalModel) async {
+        guard AppSessionManager.shared.state == .running else { return }
         guard isCloudSyncEnabled else { return }
         guard let userId = supabase.currentUserId else { return }
         
@@ -288,10 +325,13 @@ final class SyncService: ObservableObject {
             userId: userId,
             categoryId: goal.categoryId.uuidString,
             title: goal.title,
-            frequency: goal.frequency,
-            frequencyCount: goal.frequencyCount,
-            frequencyUnit: goal.frequencyUnit,
+            frequency: "daily", // Legacy compatibility
             status: goal.status,
+            recurrenceType: goal.recurrenceType,
+            weekdays: goal.weekdays,
+            scheduledTime: goal.scheduledTime.map { iso8601Formatter.string(from: $0) },
+            customIntervalDays: goal.customIntervalDays,
+            monthlyDayOfMonth: goal.monthlyDayOfMonth,
             createdAt: iso8601Formatter.string(from: goal.createdAt),
             updatedAt: iso8601Formatter.string(from: goal.updatedAt)
         )
@@ -305,6 +345,7 @@ final class SyncService: ObservableObject {
     
     /// Sync a goal update to cloud
     func syncGoalUpdate(_ goal: GoalModel) async {
+        guard AppSessionManager.shared.state == .running else { return }
         guard isCloudSyncEnabled else { return }
         guard let userId = supabase.currentUserId else { return }
         
@@ -313,10 +354,13 @@ final class SyncService: ObservableObject {
             userId: userId,
             categoryId: goal.categoryId.uuidString,
             title: goal.title,
-            frequency: goal.frequency,
-            frequencyCount: goal.frequencyCount,
-            frequencyUnit: goal.frequencyUnit,
+            frequency: "daily", // Legacy compatibility
             status: goal.status,
+            recurrenceType: goal.recurrenceType,
+            weekdays: goal.weekdays,
+            scheduledTime: goal.scheduledTime.map { iso8601Formatter.string(from: $0) },
+            customIntervalDays: goal.customIntervalDays,
+            monthlyDayOfMonth: goal.monthlyDayOfMonth,
             createdAt: iso8601Formatter.string(from: goal.createdAt),
             updatedAt: iso8601Formatter.string(from: goal.updatedAt)
         )
@@ -330,6 +374,7 @@ final class SyncService: ObservableObject {
     
     /// Sync a goal deletion to cloud
     func syncGoalDeletion(_ goalId: UUID) async {
+        guard AppSessionManager.shared.state == .running else { return }
         guard isCloudSyncEnabled else { return }
         do {
             try await supabase.deleteGoal(id: goalId.uuidString)
@@ -340,6 +385,7 @@ final class SyncService: ObservableObject {
     
     /// Sync a completion creation to cloud
     func syncCompletionCreation(_ completion: CompletionModel) async {
+        guard AppSessionManager.shared.state == .running else { return }
         guard isCloudSyncEnabled else { return }
         guard let userId = supabase.currentUserId else { return }
         
@@ -360,6 +406,7 @@ final class SyncService: ObservableObject {
     
     /// Sync a completion deletion to cloud
     func syncCompletionDeletion(_ completionId: UUID) async {
+        guard AppSessionManager.shared.state == .running else { return }
         guard isCloudSyncEnabled else { return }
         do {
             try await supabase.deleteCompletion(id: completionId.uuidString)
@@ -372,6 +419,7 @@ final class SyncService: ObservableObject {
     
     /// Sync settings from local to cloud
     func syncSettingsToCloud(settings: SettingsStore) async {
+        guard AppSessionManager.shared.state == .running else { return }
         // Settings are always synced
         guard let userId = supabase.currentUserId else { return }
         
@@ -433,6 +481,7 @@ final class SyncService: ObservableObject {
     
     /// Sync profile to cloud
     func syncProfileToCloud(name: String, title: String, age: Int? = nil, userGoal: String? = nil) async throws {
+        guard AppSessionManager.shared.state == .running else { return }
         guard isCloudSyncEnabled else { return }
         guard let userId = supabase.currentUserId else { return }
         
@@ -462,5 +511,12 @@ final class SyncService: ObservableObject {
         } catch {
             print("Failed to fetch profile from cloud: \(error)")
         }
+    }
+
+    // MARK: - Obligation Sync
+    
+    func syncObligationUpdate(_ obligation: ObligationModel) async {
+        // TODO: Implement obligation sync logic
+        print("Syncing obligation update: \(obligation.id)")
     }
 }

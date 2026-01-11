@@ -209,6 +209,8 @@ enum MonthCalculation: String, CaseIterable, Codable {
 @Observable
 final class SettingsStore {
 
+    static let shared = SettingsStore()
+
     // MARK: - Theme
     var selectedTheme: AppTheme {
         didSet {
@@ -246,6 +248,13 @@ final class SettingsStore {
     // MARK: - Day Boundary
     /// Minutes since midnight (e.g., 240 = 4:00 AM)
     var dayResetMinutes: Int {
+        didSet { save() }
+    }
+
+    // MARK: - Grace Period (Global)
+    /// Minutes after scheduled time before an obligation is marked as missed.
+    /// This is a GLOBAL setting - all obligations follow the same discipline rules.
+    var gracePeriodMinutes: Int {
         didSet { save() }
     }
     
@@ -301,7 +310,7 @@ final class SettingsStore {
     
     // MARK: - Initialization
 
-    init() {
+    private init() {
         // Load from UserDefaults
         let defaults = UserDefaults.standard
 
@@ -312,6 +321,7 @@ final class SettingsStore {
         self.weekStart = WeekStart(rawValue: defaults.string(forKey: "weekStart") ?? "") ?? .monday
         self.monthCalculation = MonthCalculation(rawValue: defaults.string(forKey: "monthCalculation") ?? "") ?? .calendar
         self.dayResetMinutes = defaults.object(forKey: "dayResetMinutes") as? Int ?? 240 // 4:00 AM default
+        self.gracePeriodMinutes = defaults.object(forKey: "gracePeriodMinutes") as? Int ?? 0 // No grace by default
         self.userName = defaults.string(forKey: "userName") ?? "User"
         self.userTitle = defaults.string(forKey: "userTitle") ?? "Habit Enthusiast"
         self.hapticFeedback = defaults.object(forKey: "hapticFeedback") as? Bool ?? true
@@ -330,6 +340,7 @@ final class SettingsStore {
         defaults.set(weekStart.rawValue, forKey: "weekStart")
         defaults.set(monthCalculation.rawValue, forKey: "monthCalculation")
         defaults.set(dayResetMinutes, forKey: "dayResetMinutes")
+        defaults.set(gracePeriodMinutes, forKey: "gracePeriodMinutes")
         defaults.set(userName, forKey: "userName")
         defaults.set(userTitle, forKey: "userTitle")
         defaults.set(hapticFeedback, forKey: "hapticFeedback")
@@ -372,20 +383,37 @@ final class SettingsStore {
     // MARK: - Data Management
     
     func resetAllData() {
-        // Clear UserDefaults
-        let domain = Bundle.main.bundleIdentifier!
-        UserDefaults.standard.removePersistentDomain(forName: domain)
+        // We do NOT want to wipe the entire domain because that would clear
+        // auth tokens, isAuthenticated state, and onboarding status.
+        // Instead, we just reset the configurable settings to defaults.
         
-        // Reset to defaults
+        let defaults = UserDefaults.standard
+        
+        // Remove specific settings keys
+        let keysToReset = [
+            "theme", "compactLayout", "reduceMotion", "weekStart",
+            "monthCalculation", "dayResetMinutes", "gracePeriodMinutes",
+            "userName", "userTitle", "hapticFeedback"
+        ]
+        
+        for key in keysToReset {
+            defaults.removeObject(forKey: key)
+        }
+        
+        // Reset properties to defaults
         selectedTheme = .red
         compactLayout = false
         reduceMotion = false
         weekStart = .monday
         monthCalculation = .calendar
         dayResetMinutes = 240
+        gracePeriodMinutes = 0
         userName = "User"
         userTitle = "Habit Enthusiast"
         hapticFeedback = true
+        
+        // Trigger save to persist these defaults back to UserDefaults
+        save()
     }
     
     // MARK: - Cloud Sync

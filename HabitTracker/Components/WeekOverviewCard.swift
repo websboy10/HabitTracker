@@ -32,7 +32,7 @@ struct WeekOverviewCard: View {
                                     .foregroundColor(AppColors.textMuted)
                             }
                             
-                            Text("Goals Completed")
+                            Text("Tasks Completed")
                                 .font(AppTypography.bodySmall)
                                 .foregroundColor(AppColors.textSecondary)
                         }

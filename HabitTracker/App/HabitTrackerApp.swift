@@ -5,6 +5,9 @@ import SwiftData
 @main
 struct HabitTrackerApp: App {
 
+    /// Central Session Manager
+    @StateObject private var session = AppSessionManager.shared
+
     /// SwiftData model container
     let modelContainer: ModelContainer
 
@@ -14,7 +17,9 @@ struct HabitTrackerApp: App {
                 GoalModel.self,
                 CategoryModel.self,
                 CompletionModel.self,
-                TaskModel.self
+                TaskModel.self,
+                ObligationModel.self,
+                MonthlyStatsCache.self
             ])
             let modelConfiguration = ModelConfiguration(
                 schema: schema,
@@ -33,84 +38,79 @@ struct HabitTrackerApp: App {
         }
     }
     
-    /// Controls splash screen visibility - set to true when animation finishes
+    /// Controls splash screen visibility
     @State private var splashFinished = false
     
-    /// Check if user is authenticated
-    @AppStorage("isAuthenticated") private var isAuthenticated = false
-    
-    /// Check if user has completed onboarding
-    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
-    
-    @State private var rootPhase: RootPhase = .auth
-
     var body: some Scene {
         WindowGroup {
             ZStack {
-                // Background layer to ensure smooth cross-dissolves
+                // Background layer
                 Color.black.ignoresSafeArea()
                 
-                // Main content with independent Z-layers for cross-dissolve
+                // Main State Switcher
                 Group {
-                    if rootPhase == .auth {
+                    switch session.state {
+                    case .unauthenticated:
                         AuthView()
-                            .transition(.asymmetric(insertion: .opacity, removal: .opacity))
-                            .zIndex(0)
-                    }
-                    
-                    if rootPhase == .onboarding {
+                            .transition(.opacity)
+                    case .onboarding:
                         OnboardingContainerView()
-                            .transition(.asymmetric(insertion: .opacity, removal: .opacity))
-                            .zIndex(1)
-                    }
-                    
-                    if rootPhase == .main {
+                            .transition(.opacity)
+                    case .running, .synchronizing:
                         ContentView()
-                            .transition(.asymmetric(insertion: .opacity, removal: .opacity))
-                            .zIndex(2)
+                            .transition(.opacity)
+                    default:
+                        // startup, authenticating, restoringIdentity, tearingDown
+                        // Kept explicitly black/empty behind splash
+                        Color.black.ignoresSafeArea()
                     }
                 }
-                // Content is always visible - splash fades out on top to reveal it
-                .allowsHitTesting(splashFinished) // Prevent interaction until splash done
+                .allowsHitTesting(splashFinished && session.state != .tearingDown)
+                .zIndex(1)
 
-                // Splash screen (fades out when finished)
+                // Splash screen (Overlay)
                 if !splashFinished {
                     SplashScreen(isFinished: $splashFinished)
                         .transition(.opacity)
                         .zIndex(100)
-                        .allowsHitTesting(false) // Splash is non-interactive
+                }
+                
+                // Loading / Blocking overlay for sensitive states
+                if session.state == .restoringIdentity || session.state == .authenticating {
+                    // Optional: Add a spinner here if splash is already gone
+                    if splashFinished {
+                        ZStack {
+                            Color.black.opacity(0.8).ignoresSafeArea()
+                            ProgressView()
+                                .tint(AppColors.primary)
+                        }
+                        .zIndex(99)
+                    }
                 }
             }
             .preferredColorScheme(.dark)
-            // NOTE: No animation on splashFinished - splash controls its own exit fade
-            // The view swap happens after splash is already invisible
-            .animation(.easeInOut(duration: 0.5), value: rootPhase)
-            .onAppear {
-                rootPhase = computeRootPhase()
-            }
-            .onChange(of: isAuthenticated) { _, _ in
-                Task { @MainActor in
-                    updateRootPhase()
-                }
-            }
-            .onChange(of: hasCompletedOnboarding) { _, _ in
-                Task { @MainActor in
-                    updateRootPhase()
-                }
-            }
+            .animation(.easeInOut(duration: 0.5), value: session.state)
             .task {
-                // Wait for splash transition to fully complete before heavy sync
-                // This prevents sync work from competing with the crossfade animation
-                while !splashFinished {
-                    try? await Task.sleep(nanoseconds: 100_000_000) // 100ms poll
-                }
-                // Extra buffer after transition
-                try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
-                
-                if SupabaseService.shared.isAuthenticated && StorageMode.current == .cloud {
-                    await SyncService.shared.performFullSync(
-                        modelContext: modelContainer.mainContext
-                    )
+                // Initialize Session Manager Logic
+                await session.initialize()
+            }
+            .onChange(of: session.state) { newState in
+                if newState == .synchronizing {
+                    // Trigger Data Sync Phase
+                    Task {
+                        // Only sync if we are strictly in sync phase (and splash is done)
+                        // We might want to wait for splash, but SessionManager handles logic.
+                        if StorageMode.current == .cloud {
+                             await SyncService.shared.performFullSync(
+                                modelContext: modelContainer.mainContext
+                            )
+                        }
+                        
+                        // Signal manager that we are done
+                        await MainActor.run {
+                            session.contentSyncCompleted()
+                        }
+                    }
                 }
             }
         }
@@ -139,27 +139,5 @@ struct HabitTrackerApp: App {
         }
         
         try? context.save()
-    }
-    
-    private enum RootPhase {
-        case auth
-        case onboarding
-        case main
-    }
-    
-    private func computeRootPhase() -> RootPhase {
-        if !isAuthenticated {
-            return .auth
-        }
-        if !hasCompletedOnboarding {
-            return .onboarding
-        }
-        return .main
-    }
-    
-    private func updateRootPhase() {
-        let next = computeRootPhase()
-        guard next != rootPhase else { return }
-        rootPhase = next
     }
 }

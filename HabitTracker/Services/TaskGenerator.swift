@@ -49,26 +49,36 @@ final class TaskGenerator {
     }
     
     /// Determines if a task should be created for a goal on a given date.
+    /// Legacy: Uses new recurrenceType field
     private func shouldCreateTask(for goal: GoalModel, on date: Date) -> Bool {
         let calendar = Calendar.current
         
-        switch goal.frequency {
+        switch goal.recurrenceType {
         case "daily":
             // Daily goals always get a task
             return true
             
         case "weekly":
-            // For weekly goals, distribute evenly across the week
+            // For weekly goals, check if today is in the weekdays array
             let weekday = calendar.component(.weekday, from: date)
-            let taskDays = weeklyTaskDays(count: goal.frequencyCount)
-            return taskDays.contains(weekday)
+            // Convert to ISO weekday (1=Monday, 7=Sunday)
+            let isoWeekday = weekday == 1 ? 7 : weekday - 1
+            return goal.weekdays.contains(isoWeekday)
             
         case "monthly":
-            // For monthly goals, distribute across the month
+            // For monthly goals, create task on day 1
             let day = calendar.component(.day, from: date)
-            let daysInMonth = calendar.range(of: .day, in: .month, for: date)?.count ?? 30
-            let taskDays = monthlyTaskDays(count: goal.frequencyCount, totalDays: daysInMonth)
-            return taskDays.contains(day)
+            return day == 1
+            
+        case "custom":
+            // For custom interval, check based on customIntervalDays
+            guard let interval = goal.customIntervalDays, interval > 0 else { return false }
+            let daysSinceCreation = calendar.dateComponents([.day], from: goal.createdAt, to: date).day ?? 0
+            return daysSinceCreation >= 0 && daysSinceCreation % interval == 0
+            
+        case "none":
+            // One-off goals - only create task on creation date
+            return calendar.isDate(date, inSameDayAs: goal.createdAt)
             
         default:
             return false

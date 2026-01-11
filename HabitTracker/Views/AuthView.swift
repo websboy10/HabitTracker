@@ -6,7 +6,6 @@ struct AuthView: View {
     @State private var viewModel = AuthViewModel()
     @State private var isSignUpMode = false
     @State private var confirmPassword = ""
-    @State private var showPasswordCriteria = false
     @FocusState private var focusedField: AuthField?
 
     private enum AuthField: Hashable {
@@ -31,6 +30,10 @@ struct AuthView: View {
     private var canSignUp: Bool {
         isEmailValid && isPasswordValid && passwordsMatch
     }
+
+    private var showPasswordCriteria: Bool {
+        focusedField == .confirmPassword
+    }
     
     private var isEmailValid: Bool {
         let emailRegex = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
@@ -46,8 +49,7 @@ struct AuthView: View {
             GeometryReader { geometry in
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack {
-                        Spacer()
-                            .frame(minHeight: 40)
+                        Spacer(minLength: 0)
 
                         // Auth Card
                         if isSignUpMode {
@@ -56,57 +58,23 @@ struct AuthView: View {
                             loginCard
                         }
 
-                        Spacer()
-                            .frame(minHeight: 40)
-
-                        // Developer Mode Controls
-                        VStack(spacing: 12) {
-                            Text("Developer Tools")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(AppColors.primary.opacity(0.8))
-                                .textCase(.uppercase)
-                                .tracking(1)
-
-                            HStack(spacing: 12) {
-                                Button {
-                                    SupabaseService.shared.debugLogin(skipOnboarding: false)
-                                } label: {
-                                    Text("Debug: Onboarding")
-                                        .font(.system(size: 11, weight: .medium))
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(Color.white.opacity(0.1))
-                                        .clipShape(Capsule())
-                                }
-
-                                Button {
-                                    SupabaseService.shared.debugLogin(skipOnboarding: true)
-                                } label: {
-                                    Text("Debug: Skip All")
-                                        .font(.system(size: 11, weight: .medium))
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(Color.white.opacity(0.1))
-                                        .clipShape(Capsule())
-                                }
-                            }
-                        }
-                        .padding(.bottom, 20)
-                        .foregroundColor(.white.opacity(0.6))
-
-                        // Bottom text
-                        Text("Track \u{00b7} Reflect \u{00b7} Improve")
-                            .font(.system(size: 10, weight: .medium))
-                            .textCase(.uppercase)
-                            .tracking(3)
-                            .foregroundColor(Color.white.opacity(0.2))
-                            .padding(.bottom, AppSpacing.lg)
+                        Spacer(minLength: 0)
                     }
                     .frame(minHeight: geometry.size.height)
+                    .frame(maxWidth: .infinity)
                     .padding(.horizontal, AppSpacing.screenHorizontal)
+                }
+                .overlay(alignment: .bottom) {
+                    Text("Track \u{00b7} Reflect \u{00b7} Improve")
+                        .font(.system(size: 10, weight: .medium))
+                        .textCase(.uppercase)
+                        .tracking(3)
+                        .foregroundColor(Color.white.opacity(0.2))
+                        .padding(.bottom, AppSpacing.lg)
                 }
             }
         }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .animation(.easeInOut(duration: 0.3), value: isSignUpMode)
     }
     
@@ -284,14 +252,9 @@ struct AuthView: View {
                         focusedField: $focusedField,
                         field: .signUpPassword
                     )
-                    .onChange(of: viewModel.password) { _, _ in
-                        if !viewModel.password.isEmpty {
-                            showPasswordCriteria = true
-                        }
-                    }
                 }
                 
-                // Password criteria
+                // Password criteria - only visible when confirm password is in use
                 if showPasswordCriteria {
                     VStack(alignment: .leading, spacing: 6) {
                         PasswordCriteriaRow(text: "At least 8 characters", isMet: passwordHasMinLength)
@@ -303,6 +266,7 @@ struct AuthView: View {
                     .padding(.vertical, 8)
                     .background(Color.white.opacity(0.03))
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
                 }
 
                 // Confirm password field
@@ -484,6 +448,7 @@ private struct PasswordCriteriaRow: View {
             Image(systemName: isMet ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(isMet ? Color.green.opacity(0.8) : Color.white.opacity(0.3))
+                .frame(width: 16, height: 16)
             
             Text(text)
                 .font(.system(size: 11, weight: .medium))

@@ -124,6 +124,11 @@ struct GoalDTO: Codable {
     var frequencyCount: Int?
     var frequencyUnit: String?
     var status: String?
+    var recurrenceType: String?
+    var weekdays: [Int]?
+    var scheduledTime: String?
+    var customIntervalDays: Int?
+    var monthlyDayOfMonth: Int?
     var createdAt: String?
     var updatedAt: String?
     var deletedAt: String?
@@ -136,6 +141,11 @@ struct GoalDTO: Codable {
         case frequencyCount = "frequency_count"
         case frequencyUnit = "frequency_unit"
         case status
+        case recurrenceType = "recurrence_type"
+        case weekdays
+        case scheduledTime = "scheduled_time"
+        case customIntervalDays = "custom_interval_days"
+        case monthlyDayOfMonth = "monthly_day_of_month"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case deletedAt = "deleted_at"
@@ -158,6 +168,29 @@ struct CompletionDTO: Codable {
         case completedAt = "completed_at"
         case value
         case createdAt = "created_at"
+    }
+}
+
+/// Obligation DTO matching obligations table
+struct ObligationDTO: Codable {
+    var id: String?
+    let userId: String
+    let goalId: String
+    let scheduledAt: String
+    var status: String
+    var lockedAt: String?
+    var createdAt: String?
+    var updatedAt: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId = "user_id"
+        case goalId = "goal_id"
+        case scheduledAt = "scheduled_at"
+        case status
+        case lockedAt = "locked_at"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
     }
 }
 
@@ -573,7 +606,7 @@ final class SupabaseService: ObservableObject {
         // If RLS allows, this will work. If not, we might need a backend function.
         // Assuming RLS allows users to delete rows where user_id = auth.uid()
         
-        let tables = ["completions", "tasks", "goals", "categories", "user_settings", "profiles"]
+        let tables = ["completions", "obligations", "goals", "categories", "user_settings", "profiles"]
         
         for table in tables {
             print("[SupabaseService] 🗑️ Deleting from \(table)...")
@@ -730,6 +763,37 @@ final class SupabaseService: ObservableObject {
         
         let profiles = try decoder.decode([ProfileDTO].self, from: data)
         return profiles.first
+    }
+    
+    /// Get current user's profile for authentication purposes.
+    /// This bypasses storage mode check since we need to check if user exists
+    /// before storage mode is determined (during re-login after logout).
+    func getProfileForAuth() async throws -> ProfileDTO? {
+        guard let userId = currentUserId else { return nil }
+        
+        let data = try await makeRequest(
+            path: "profiles",
+            method: "GET",
+            queryParams: [("id", "eq.\(userId)"), ("select", "*")]
+        )
+        
+        let profiles = try decoder.decode([ProfileDTO].self, from: data)
+        return profiles.first
+    }
+    
+    /// Get current user's settings for authentication purposes.
+    /// This bypasses storage mode check for re-login scenarios.
+    func getSettingsForAuth() async throws -> UserSettingsDTO? {
+        guard let userId = currentUserId else { return nil }
+        
+        let data = try await makeRequest(
+            path: "settings",
+            method: "GET",
+            queryParams: [("user_id", "eq.\(userId)"), ("select", "*")]
+        )
+        
+        let settings = try decoder.decode([UserSettingsDTO].self, from: data)
+        return settings.first
     }
     
     /// Update current user's profile
@@ -1146,5 +1210,43 @@ final class SupabaseService: ObservableObject {
         let _ = try await URLSession.shared.data(for: request)
         
         print("✅ All user data deleted from Supabase")
+    }
+    
+    /// Resets user's goal/task data without deleting account or settings.
+    /// Deletes: completions, obligations, goals, categories
+    /// Keeps: profile, settings (user stays logged in)
+    func resetUserData() async throws {
+        guard let userId = currentUserId else {
+            throw SupabaseError(message: "No user ID available", error: nil, errorDescription: nil, statusCode: nil)
+        }
+        
+        // Delete in order respecting foreign key constraints:
+        // completions -> obligations -> tasks -> goals -> categories
+        
+        // 1. Delete all completions
+        var request = URLRequest(url: URL(string: "\(supabaseURL)/rest/v1/completions?user_id=eq.\(userId)")!)
+        request.httpMethod = "DELETE"
+        authHeaders.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
+        let _ = try await URLSession.shared.data(for: request)
+        
+        // 2. Delete all obligations
+        request = URLRequest(url: URL(string: "\(supabaseURL)/rest/v1/obligations?user_id=eq.\(userId)")!)
+        request.httpMethod = "DELETE"
+        authHeaders.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
+        let _ = try await URLSession.shared.data(for: request)
+        
+        // 3. Delete all goals
+        request = URLRequest(url: URL(string: "\(supabaseURL)/rest/v1/goals?user_id=eq.\(userId)")!)
+        request.httpMethod = "DELETE"
+        authHeaders.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
+        let _ = try await URLSession.shared.data(for: request)
+        
+        // 5. Delete all categories (will be re-seeded on next app launch)
+        request = URLRequest(url: URL(string: "\(supabaseURL)/rest/v1/categories?user_id=eq.\(userId)")!)
+        request.httpMethod = "DELETE"
+        authHeaders.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
+        let _ = try await URLSession.shared.data(for: request)
+        
+        print("✅ User data reset in Supabase (profile and settings preserved)")
     }
 }

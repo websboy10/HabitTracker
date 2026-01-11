@@ -15,29 +15,7 @@ struct GoalsView: View {
             AppMaterials.moodGradient
             
             // Scrollable content
-            Group {
-                if viewModel.selectedTab == "yearly" {
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 0) {
-                            header
-                                .padding(.bottom, AppSpacing.lg)
-                            
-                            GoalTabPicker(selection: Binding(
-                                get: { GoalFrequency(rawValue: viewModel.selectedTab) ?? .daily },
-                                set: { viewModel.selectedTab = $0.rawValue }
-                            ))
-                            .padding(.bottom, AppSpacing.lg)
-                            
-                            yearlyContent
-                        }
-                        .padding(.horizontal, AppSpacing.screenHorizontal)
-                        .padding(.top, AppSpacing.xl)
-                        .padding(.bottom, 100)
-                    }
-                } else {
-                    goalsList
-                }
-            }
+            goalsList
             
             // Fixed bottom elements
             if showsCustomTabBar {
@@ -65,7 +43,7 @@ struct GoalsView: View {
                     .foregroundColor(AppColors.textPrimary)
                     .tracking(-0.5)
                 
-                Text(viewModel.selectedTab == "yearly" ? "Yearly overview" : "Manage your habits")
+                Text("Manage your habits")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(AppColors.textSecondary)
             }
@@ -100,19 +78,21 @@ struct GoalsView: View {
             Section {
                 header
                     .padding(.bottom, AppSpacing.lg)
+                    .padding(.horizontal, AppSpacing.screenHorizontal)
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
-                
+
                 GoalTabPicker(selection: Binding(
                     get: { GoalFrequency(rawValue: viewModel.selectedTab) ?? .daily },
                     set: { viewModel.selectedTab = $0.rawValue }
                 ))
                 .padding(.bottom, AppSpacing.lg)
+                .padding(.horizontal, AppSpacing.screenHorizontal)
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
-                
+
                 let goals = viewModel.fetchGoals()
                 if goals.isEmpty {
                     emptyState
@@ -124,9 +104,10 @@ struct GoalsView: View {
                         GoalRow(
                             goal: goal,
                             category: viewModel.category(for: goal),
-                            onEdit: { viewModel.editGoal(goal) }
+                            onEdit: { viewModel.editGoal(goal) },
+                            onToggleStatus: { viewModel.toggleStatus(goal) }
                         )
-                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 12, trailing: 0))
+                        .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 12, trailing: 8))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -142,9 +123,8 @@ struct GoalsView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .padding(.horizontal, AppSpacing.screenHorizontal)
         .padding(.top, AppSpacing.xl)
-        .padding(.bottom, 100)
+        .padding(.bottom, 120)
     }
     
     private var emptyState: some View {
@@ -172,70 +152,6 @@ struct GoalsView: View {
         .padding(.vertical, 60)
     }
     
-    // MARK: - Yearly Content
-    
-    private var yearlyContent: some View {
-        VStack(spacing: AppSpacing.lg) {
-            // Progress ring
-            yearlyProgressRing
-                .padding(.vertical, AppSpacing.md)
-            
-            // Yearly goal cards
-            VStack(spacing: 16) {
-                let goals = viewModel.fetchActiveGoals()
-                
-                ForEach(goals, id: \.id) { goal in
-                    YearlyGoalCardSwiftData(
-                        goal: goal,
-                        category: viewModel.category(for: goal),
-                        completed: viewModel.yearlyCompletions(for: goal),
-                        target: viewModel.yearlyTarget(for: goal),
-                        progress: viewModel.yearlyProgress(for: goal)
-                    )
-                }
-            }
-        }
-    }
-    
-    private var yearlyProgressRing: some View {
-        let progress = viewModel.yearlyProgress()
-        
-        return ZStack {
-            // Subtle glow
-            Circle()
-                .fill(AppColors.primary.opacity(0.2))
-                .frame(width: 180, height: 180)
-                .blur(radius: 60)
-            
-            // Track
-            Circle()
-                .stroke(Color.white.opacity(0.05), lineWidth: 6)
-                .frame(width: 180, height: 180)
-            
-            // Progress
-            Circle()
-                .trim(from: 0, to: progress)
-                .stroke(AppColors.primary, style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                .frame(width: 180, height: 180)
-                .rotationEffect(.degrees(-90))
-                .animation(AppAnimation.standard, value: progress)
-            
-            // Center content
-            VStack(spacing: 8) {
-                Text("\(Int(progress * 100))%")
-                    .font(.system(size: 48, weight: .bold))
-                    .foregroundColor(AppColors.textPrimary)
-                    .shadow(color: AppColors.primary.opacity(0.4), radius: 15)
-                
-                Text("Yearly Goal")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(AppColors.textMuted)
-                    .textCase(.uppercase)
-                    .tracking(2)
-            }
-        }
-    }
-    
     // MARK: - Bottom Navigation
     
     private var bottomNavigation: some View {
@@ -261,28 +177,31 @@ struct GoalRow: View {
     let goal: GoalModel
     let category: CategoryModel?
     var onEdit: (() -> Void)? = nil
+    var onToggleStatus: (() -> Void)? = nil
     
     private var accent: Color {
         category?.color ?? AppColors.primary
     }
     
     var body: some View {
-        HStack(alignment: .center, spacing: 14) {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+        HStack(alignment: .center, spacing: 12) {
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .fill(accent.opacity(goal.isActive ? 0.9 : 0.4))
-                .frame(width: 6, height: 46)
-                .shadow(color: accent.opacity(goal.isActive ? 0.4 : 0.0), radius: 8)
+                .frame(width: 5, height: 40)
+                .shadow(color: accent.opacity(goal.isActive ? 0.4 : 0.0), radius: 6)
             
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
                     if let category = category {
                         Text(category.name)
-                            .font(.system(size: 10, weight: .bold))
+                            .font(.system(size: 9, weight: .bold))
                             .foregroundColor(accent.opacity(goal.isActive ? 0.9 : 0.6))
                             .textCase(.uppercase)
-                            .tracking(1)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
+                            .tracking(0.8)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
                             .background(
                                 Capsule()
                                     .fill(accent.opacity(goal.isActive ? 0.16 : 0.08))
@@ -293,31 +212,63 @@ struct GoalRow: View {
                             )
                     }
                     
-                    Text(goal.isActive ? "Active" : "Paused")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(goal.isActive ? AppColors.textSecondary : AppColors.textMuted)
-                        .textCase(.uppercase)
-                        .tracking(1)
+                    // Active/Paused indicator
+                    HStack(spacing: 3) {
+                        Circle()
+                            .fill(goal.isActive ? Color.green : Color.gray.opacity(0.5))
+                            .frame(width: 5, height: 5)
+                        
+                        Text(goal.isActive ? "Active" : "Paused")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(goal.isActive ? Color.green.opacity(0.9) : AppColors.textMuted)
+                            .textCase(.uppercase)
+                            .tracking(0.8)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule()
+                            .fill(goal.isActive ? Color.green.opacity(0.12) : Color.white.opacity(0.05))
+                    )
+                    .overlay(
+                        Capsule()
+                            .stroke(goal.isActive ? Color.green.opacity(0.3) : Color.white.opacity(0.1), lineWidth: 1)
+                    )
                 }
                 
                 Text(goal.title)
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(goal.isActive ? AppColors.textPrimary : AppColors.textPrimary.opacity(0.75))
                     .tracking(0.2)
                 
-                Text(goal.frequencyText)
-                    .font(.system(size: 12, weight: .medium))
+                Text(goal.recurrenceText)
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundColor(goal.isActive ? AppColors.textSecondary : AppColors.textMuted)
             }
             
             Spacer()
             
+            // Active/Paused Toggle
+            Toggle("", isOn: Binding(
+                get: { goal.isActive },
+                set: { _ in
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        onToggleStatus?()
+                    }
+                }
+            ))
+            .toggleStyle(SwitchToggleStyle(tint: Color.green))
+            .labelsHidden()
+            .scaleEffect(0.75)
+            
             if let onEdit = onEdit {
                 Button(action: onEdit) {
                     Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundColor(AppColors.textMuted)
-                        .frame(width: 34, height: 34)
+                        .frame(width: 30, height: 30)
                         .background(
                             Circle()
                                 .fill(Color.white.opacity(0.06))
@@ -330,7 +281,8 @@ struct GoalRow: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(18)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
         .background(
             LinearGradient(
                 colors: [accent.opacity(0.08), Color.white.opacity(0.02)],
@@ -345,6 +297,80 @@ struct GoalRow: View {
                 .stroke(AppColors.glassBorder, lineWidth: 1)
         )
         .opacity(goal.isActive ? 1 : 0.7)
+    }
+}
+
+// MARK: - Swipeable Goal Row (for ScrollView context)
+
+struct SwipeableGoalRow: View {
+    let goal: GoalModel
+    let category: CategoryModel?
+    var onEdit: (() -> Void)? = nil
+    var onToggleStatus: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
+    
+    @State private var offset: CGFloat = 0
+    private let deleteThreshold: CGFloat = 80
+    
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            // Delete action background
+            HStack {
+                Spacer()
+                Button(action: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        onDelete?()
+                    }
+                }) {
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(.white)
+                        .frame(width: 60, height: 60)
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: AppSpacing.cornerRadiusLarge, style: .continuous)
+                    .fill(Color.red.opacity(0.8))
+            )
+            .opacity(offset < 0 ? min(1, abs(offset) / deleteThreshold) : 0)
+            
+            // Main content
+            GoalRow(
+                goal: goal,
+                category: category,
+                onEdit: onEdit,
+                onToggleStatus: onToggleStatus
+            )
+            .offset(x: offset)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 20)
+                    .onChanged { value in
+                        // Only respond to horizontal swipes (left direction)
+                        // This allows vertical scrolling to work
+                        let isHorizontalDrag = abs(value.translation.width) > abs(value.translation.height)
+                        if isHorizontalDrag && value.translation.width < 0 {
+                            offset = value.translation.width
+                        }
+                    }
+                    .onEnded { value in
+                        let isHorizontalDrag = abs(value.translation.width) > abs(value.translation.height)
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            if isHorizontalDrag && value.translation.width < -deleteThreshold {
+                                // Trigger delete
+                                offset = -UIScreen.main.bounds.width
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                    onDelete?()
+                                }
+                            } else {
+                                offset = 0
+                            }
+                        }
+                    }
+            )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: AppSpacing.cornerRadiusLarge, style: .continuous))
     }
 }
 
@@ -393,10 +419,16 @@ struct GoalCardSwiftData: View {
                     .foregroundColor(goal.isActive ? AppColors.textPrimary : AppColors.textPrimary.opacity(0.8))
                     .tracking(0.3)
                 
-                // Frequency
-                Text(goal.frequencyText)
+                // Recurrence
+                Text(goal.recurrenceText)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(goal.isActive ? AppColors.textSecondary : AppColors.textMuted)
+
+                if let scheduleDetailText {
+                    Text(scheduleDetailText)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(AppColors.textMuted)
+                }
             }
             
             Spacer()
@@ -436,6 +468,18 @@ struct GoalCardSwiftData: View {
             )
         }
     }
+
+    private var scheduleDetailText: String? {
+        var parts: [String] = []
+        if let monthlyDay = goal.monthlyDayText {
+            parts.append(monthlyDay)
+        }
+        if let timeText = goal.timeText {
+            parts.append(timeText)
+        }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: " \u{00b7} ")
+    }
 }
 
 // MARK: - Yearly Goal Card for SwiftData
@@ -456,7 +500,7 @@ struct YearlyGoalCardSwiftData: View {
                         .foregroundColor(AppColors.textPrimary.opacity(0.9))
                         .tracking(0.3)
                     
-                    Text("\(category?.name ?? "") • \(goal.frequencyUnit.capitalized)")
+                    Text("\(category?.name ?? "") • \(goal.recurrenceText)")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(AppColors.textMuted)
                 }

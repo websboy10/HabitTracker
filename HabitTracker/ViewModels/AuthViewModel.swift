@@ -204,6 +204,10 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
     private func performAppleSignIn(idToken: String, nonce: String) async {
          do {
              _ = try await supabase.signInWithIdToken(idToken: idToken, nonce: nonce)
+             
+             // Hand off to Session Manager
+             await AppSessionManager.shared.loginSuccess()
+             
          } catch let error as SupabaseError {
              errorMessage = error.localizedDescription
          } catch {
@@ -211,6 +215,7 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
          }
          isLoading = false
     }
+
 
     @MainActor
     private func performLogin() async {
@@ -221,6 +226,10 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
         do {
             _ = try await supabase.signIn(email: email, password: password)
             print("[AuthViewModel] ✅ Login successful")
+            
+            // Hand off to Session Manager
+            await AppSessionManager.shared.loginSuccess()
+            
             // Clear fields on success
             email = ""
             password = ""
@@ -242,6 +251,10 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
         do {
             _ = try await supabase.signUp(email: email, password: password)
             print("[AuthViewModel] ✅ Signup successful")
+            
+            // Hand off to Session Manager - Explicit Onboarding
+            await AppSessionManager.shared.startOnboarding()
+            
             // Clear fields on success
             email = ""
             password = ""

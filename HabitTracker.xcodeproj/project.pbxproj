@@ -54,6 +54,13 @@
 		1A00006C286D40000000004A /* OnboardingContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00006D286D40000000004B /* OnboardingContainerView.swift */; };
 		1A00006E286D40000000004D /* SupabaseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00006F286D40000000004E /* SupabaseService.swift */; };
 		1A000070286D40000000004F /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000071286D400000000050 /* SyncService.swift */; };
+		1A000072286D400000000051 /* StatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000073286D400000000052 /* StatsView.swift */; };
+		1A000074286D400000000053 /* StatsCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000075286D400000000054 /* StatsCalculator.swift */; };
+		1A000078286D400000000057 /* ObligationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000076286D400000000055 /* ObligationModel.swift */; };
+		1A000079286D400000000058 /* ObligationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000077286D400000000056 /* ObligationScheduler.swift */; };
+		1A00007A286D400000000059 /* AppSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00007B286D40000000005A /* AppSessionManager.swift */; };
+		1A00007C286D40000000005B /* DeadlineEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00007D286D40000000005C /* DeadlineEngine.swift */; };
+		CC9592AF56ECF04F03D22647 /* MonthlyStatsCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1C08265CC71977CDB526012 /* MonthlyStatsCache.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -105,8 +112,15 @@
 		1A00006D286D40000000004B /* OnboardingContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingContainerView.swift; sourceTree = "<group>"; };
 		1A00006F286D40000000004E /* SupabaseService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseService.swift; sourceTree = "<group>"; };
 		1A000071286D400000000050 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
+		1A000073286D400000000052 /* StatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsView.swift; sourceTree = "<group>"; };
+		1A000075286D400000000054 /* StatsCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsCalculator.swift; sourceTree = "<group>"; };
+		1A000076286D400000000055 /* ObligationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObligationModel.swift; sourceTree = "<group>"; };
+		1A000077286D400000000056 /* ObligationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObligationScheduler.swift; sourceTree = "<group>"; };
+		1A00007B286D40000000005A /* AppSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSessionManager.swift; sourceTree = "<group>"; };
+		1A00007D286D40000000005C /* DeadlineEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeadlineEngine.swift; sourceTree = "<group>"; };
 		2EE2F7C22F10244700BE4BCF /* HabitTrackerRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HabitTrackerRelease.entitlements; sourceTree = "<group>"; };
 		2EE2F7C32F12E6E600BE4BCF /* HabitTracker.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HabitTracker.entitlements; sourceTree = "<group>"; };
+		D1C08265CC71977CDB526012 /* MonthlyStatsCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MonthlyStatsCache.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -200,6 +214,7 @@
 				1A00006E286D40000000004C /* Onboarding */,
 				1A00001A286D40000000000D /* HomeView.swift */,
 				1A00001C286D40000000000E /* GoalsView.swift */,
+				1A000073286D400000000052 /* StatsView.swift */,
 				1A00001E286D40000000000F /* SettingsView.swift */,
 				1A000021286D400000000012 /* SplashScreen.swift */,
 				1A000057286D400000000036 /* GoalFormSheet.swift */,
@@ -235,9 +250,13 @@
 			children = (
 				1A000053286D400000000034 /* TaskGenerator.swift */,
 				1A000055286D400000000035 /* ProgressCalculator.swift */,
+				1A000075286D400000000054 /* StatsCalculator.swift */,
 				1A00005D286D40000000003B /* HapticManager.swift */,
 				1A00006F286D40000000004E /* SupabaseService.swift */,
+				1A000077286D400000000056 /* ObligationScheduler.swift */,
 				1A000071286D400000000050 /* SyncService.swift */,
+				1A00007B286D40000000005A /* AppSessionManager.swift */,
+				1A00007D286D40000000005C /* DeadlineEngine.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -248,7 +267,9 @@
 				1A00004B286D400000000030 /* GoalModel.swift */,
 				1A00004D286D400000000031 /* CategoryModel.swift */,
 				1A00004F286D400000000032 /* CompletionModel.swift */,
+				1A000076286D400000000055 /* ObligationModel.swift */,
 				1A000051286D400000000033 /* TaskModel.swift */,
+				D1C08265CC71977CDB526012 /* MonthlyStatsCache.swift */,
 			);
 			path = SwiftData;
 			sourceTree = "<group>";
@@ -379,6 +400,13 @@
 				1A00006C286D40000000004A /* OnboardingContainerView.swift in Sources */,
 				1A00006E286D40000000004D /* SupabaseService.swift in Sources */,
 				1A000070286D40000000004F /* SyncService.swift in Sources */,
+				1A00007A286D400000000059 /* AppSessionManager.swift in Sources */,
+				1A000072286D400000000051 /* StatsView.swift in Sources */,
+				1A000074286D400000000053 /* StatsCalculator.swift in Sources */,
+				1A000078286D400000000057 /* ObligationModel.swift in Sources */,
+				1A000079286D400000000058 /* ObligationScheduler.swift in Sources */,
+				1A00007C286D40000000005B /* DeadlineEngine.swift in Sources */,
+				CC9592AF56ECF04F03D22647 /* MonthlyStatsCache.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

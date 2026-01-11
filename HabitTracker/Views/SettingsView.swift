@@ -7,7 +7,7 @@ struct SettingsView: View {
     
     @Environment(\.modelContext) private var modelContext
     @Binding var selectedTab: Tab
-    @State private var settings = SettingsStore()
+    @State private var settings = SettingsStore.shared
     var showsCustomTabBar: Bool = true
     
     // Time picker state
@@ -16,7 +16,6 @@ struct SettingsView: View {
     // Data management state
     @State private var showingResetConfirmation = false
     @State private var showingExportSheet = false
-    @State private var showingImportPicker = false
     @State private var exportURL: URL?
     
     // Account management state
@@ -89,9 +88,6 @@ struct SettingsView: View {
             if let url = exportURL {
                 ShareSheet(activityItems: [url])
             }
-        }
-        .fileImporter(isPresented: $showingImportPicker, allowedContentTypes: [.json]) { result in
-            handleImport(result)
         }
         .overlay {
             // Reset Data Confirmation
@@ -420,11 +416,7 @@ struct SettingsView: View {
                     SettingsActionRow(icon: "square.and.arrow.up", label: "Export Data") {
                         exportData()
                     }
-                    
-                    SettingsActionRow(icon: "square.and.arrow.down", label: "Import Data") {
-                        showingImportPicker = true
-                    }
-                    
+
                     Divider()
                         .background(Color.white.opacity(0.05))
                         .padding(.vertical, 4)
@@ -600,8 +592,25 @@ struct SettingsView: View {
     // MARK: - Data Management
     
     private func exportData() {
+        let isoFormatter = ISO8601DateFormatter()
+        let dateTimeFormatter = DateFormatter()
+        dateTimeFormatter.dateStyle = .medium
+        dateTimeFormatter.timeStyle = .short
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        dateFormatter.timeStyle = .none
+
         // Create export data
         var exportDict: [String: Any] = [
+            "readMe": [
+                "This file is your Habit Tracker data export.",
+                "Sections are written in plain language and also include IDs for import.",
+                "Dates include both ISO 8601 and local readable formats."
+            ],
+            "exportInfo": [
+                "app": "HabitTracker",
+                "formatVersion": 1
+            ],
             "settings": [
                 "theme": settings.selectedTheme.rawValue,
                 "reduceMotion": settings.reduceMotion,
@@ -611,25 +620,54 @@ struct SettingsView: View {
                 "userName": settings.userName,
                 "userTitle": settings.userTitle
             ],
-            "exportDate": ISO8601DateFormatter().string(from: Date())
+            "exportDate": isoFormatter.string(from: Date()),
+            "exportDateReadable": dateTimeFormatter.string(from: Date())
         ]
         
-        // Fetch goals and completions
+        // Fetch categories, goals, and completions
+        let categoriesDescriptor = FetchDescriptor<CategoryModel>()
         let goalsDescriptor = FetchDescriptor<GoalModel>()
         let completionsDescriptor = FetchDescriptor<CompletionModel>()
+
+        var categoryNameById: [UUID: String] = [:]
+        var goalTitleById: [UUID: String] = [:]
+        if let categories = try? modelContext.fetch(categoriesDescriptor) {
+            exportDict["categories"] = categories.map { category in
+                [
+                    "id": category.id.uuidString,
+                    "name": category.name,
+                    "colorHex": category.colorHex
+                ]
+            }
+            categoryNameById = Dictionary(
+                uniqueKeysWithValues: categories.map { ($0.id, $0.name) }
+            )
+        }
         
         if let goals = try? modelContext.fetch(goalsDescriptor) {
-            exportDict["goals"] = goals.map { goal in
-                [
+            goalTitleById = Dictionary(
+                uniqueKeysWithValues: goals.map { ($0.id, $0.title) }
+            )
+            exportDict["goals"] = goals.map { goal -> [String: Any] in
+                var goalDict: [String: Any] = [
                     "id": goal.id.uuidString,
                     "title": goal.title,
                     "categoryId": goal.categoryId.uuidString,
-                    "frequency": goal.frequency,
-                    "frequencyCount": goal.frequencyCount,
-                    "frequencyUnit": goal.frequencyUnit,
-                    "status": goal.status,
-                    "createdAt": ISO8601DateFormatter().string(from: goal.createdAt)
+                    "categoryName": categoryNameById[goal.categoryId] ?? "Unknown",
+                    "recurrenceType": goal.recurrenceType,
+                    "recurrence": goal.recurrenceText,
+                    "weekdays": goal.weekdays,
+                    "status": goal.status.capitalized,
+                    "createdAt": isoFormatter.string(from: goal.createdAt),
+                    "createdAtReadable": dateTimeFormatter.string(from: goal.createdAt)
                 ]
+                if let customInterval = goal.customIntervalDays {
+                    goalDict["customIntervalDays"] = customInterval
+                }
+                if let timeText = goal.timeText {
+                    goalDict["scheduledTime"] = timeText
+                }
+                return goalDict
             }
         }
         
@@ -638,11 +676,21 @@ struct SettingsView: View {
                 [
                     "id": completion.id.uuidString,
                     "goalId": completion.goalId.uuidString,
-                    "completedAt": ISO8601DateFormatter().string(from: completion.completedAt),
+                    "goalTitle": goalTitleById[completion.goalId] ?? "Unknown Goal",
+                    "completedAt": isoFormatter.string(from: completion.completedAt),
+                    "completedAtReadable": dateTimeFormatter.string(from: completion.completedAt),
+                    "completedOn": dateFormatter.string(from: completion.completedAt),
                     "value": completion.value
                 ]
             }
         }
+
+        let goalsCount = (exportDict["goals"] as? [[String: Any]])?.count ?? 0
+        let completionsCount = (exportDict["completions"] as? [[String: Any]])?.count ?? 0
+        exportDict["summary"] = [
+            "goals": goalsCount,
+            "completions": completionsCount
+        ]
         
         // Write to file
         do {
@@ -656,70 +704,33 @@ struct SettingsView: View {
         }
     }
     
-    private func handleImport(_ result: Result<URL, Error>) {
-        guard case .success(let url) = result else { return }
-        
-        guard url.startAccessingSecurityScopedResource() else { return }
-        defer { url.stopAccessingSecurityScopedResource() }
-        
-        do {
-            let data = try Data(contentsOf: url)
-            guard let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
-            
-            // Import settings
-            if let settingsDict = dict["settings"] as? [String: Any] {
-                if let theme = settingsDict["theme"] as? String {
-                    settings.selectedTheme = AppTheme(rawValue: theme) ?? .red
-                }
-                if let motion = settingsDict["reduceMotion"] as? Bool {
-                    settings.reduceMotion = motion
-                }
-                if let week = settingsDict["weekStart"] as? String {
-                    settings.weekStart = WeekStart(rawValue: week) ?? .monday
-                }
-                if let month = settingsDict["monthCalculation"] as? String {
-                    settings.monthCalculation = MonthCalculation(rawValue: month) ?? .calendar
-                }
-                if let reset = settingsDict["dayResetMinutes"] as? Int {
-                    settings.dayResetMinutes = reset
+    private func resetAllData() {
+        Task {
+            // 1. Delete from Supabase (if cloud sync is enabled)
+            if SyncService.shared.isCloudSyncEnabled {
+                do {
+                    try await SupabaseService.shared.resetUserData()
+                } catch {
+                    print("Failed to reset Supabase data: \(error)")
                 }
             }
             
-            // TODO: Import goals and completions if needed
-            
-        } catch {
-            print("Import failed: \(error)")
-        }
-    }
-    
-    private func resetAllData() {
-        // Clear SwiftData
-        do {
-            try modelContext.delete(model: GoalModel.self)
-            try modelContext.delete(model: CategoryModel.self)
-            try modelContext.delete(model: CompletionModel.self)
-            try modelContext.delete(model: TaskModel.self)
-            try modelContext.save()
-        } catch {
-            print("Reset failed: \(error)")
-        }
-        
-        // Reset settings
-        settings.resetAllData()
-    }
-    
-    private func performLogout() {
-        isLoggingOut = true
-        
-        Task {
-            // Sign out from Supabase (always allowed)
-            await SupabaseService.shared.signOut()
-            
-            // Clear all local SwiftData
+            // 2. Clear local SwiftData
             await MainActor.run {
-                clearAllLocalData()
-                clearAllUserDefaults()
-                isLoggingOut = false
+                do {
+                    try modelContext.delete(model: CompletionModel.self)
+                    try modelContext.delete(model: ObligationModel.self)
+                    try modelContext.delete(model: TaskModel.self)
+                    try modelContext.delete(model: GoalModel.self)
+                    try modelContext.delete(model: CategoryModel.self)
+                    try modelContext.save()
+                    print("✅ Local data reset successfully")
+                } catch {
+                    print("Failed to reset local data: \(error)")
+                }
+                
+                // 3. Reset settings (but keep user logged in)
+                settings.resetAllData()
             }
         }
     }
@@ -728,63 +739,47 @@ struct SettingsView: View {
         isDeletingAccount = true
         
         Task {
+            // Deletion logic handled by manager (Remote + Local Wipe)
             do {
-                // Call the new unified delete account method
-                // This handles cleaning up public tables and the auth user
-                try await SupabaseService.shared.deleteAccount()
-                
-                // Clear all local SwiftData
-                await MainActor.run {
-                    clearAllLocalData()
-                    clearAllUserDefaults()
-                    isDeletingAccount = false
-                }
+                try await AppSessionManager.shared.deleteAccount()
             } catch {
                 print("Failed to delete account data: \(error)")
-                await MainActor.run {
-                    isDeletingAccount = false
-                }
+                // If it fails, we still want to log out in UI?
+                // For now, just reset the spinner.
+                await MainActor.run { isDeletingAccount = false }
             }
         }
     }
-
+    
+    private func performLogout() {
+        isLoggingOut = true
+        
+        Task {
+            // 1. Freeze sync explicitly
+            await MainActor.run {
+                AppSessionManager.shared.beginLogout()
+            }
+            
+            // 2. Complete logout (Keep Local Data - Flow 6A)
+            await AppSessionManager.shared.completeLogout()
+            
+            await MainActor.run {
+                isLoggingOut = false
+            }
+        }
+    }
     
     private func clearAllLocalData() {
         do {
             try modelContext.delete(model: GoalModel.self)
             try modelContext.delete(model: CategoryModel.self)
             try modelContext.delete(model: CompletionModel.self)
+            try modelContext.delete(model: ObligationModel.self)
             try modelContext.delete(model: TaskModel.self)
             try modelContext.save()
         } catch {
             print("Failed to clear local data: \(error)")
         }
-    }
-    
-    private func clearAllUserDefaults() {
-        StorageMode.clear()
-        let defaults = UserDefaults.standard
-        withAnimation(.easeInOut(duration: 0.2)) {
-            defaults.set(false, forKey: "hasCompletedOnboarding")
-            defaults.set(false, forKey: "isAuthenticated")
-        }
-        defaults.removeObject(forKey: "hasCompletedOnboarding")
-        defaults.removeObject(forKey: "isAuthenticated")
-        defaults.removeObject(forKey: "supabase_session")
-        defaults.removeObject(forKey: "supabase_access_token")
-        defaults.removeObject(forKey: "userName")
-        defaults.removeObject(forKey: "userTitle")
-        defaults.removeObject(forKey: "userAge")
-        defaults.removeObject(forKey: "userGoals")
-        defaults.removeObject(forKey: "theme")
-        defaults.removeObject(forKey: "onboardingTheme")
-        defaults.removeObject(forKey: "hapticFeedback")
-        defaults.removeObject(forKey: "compactLayout")
-        defaults.removeObject(forKey: "reduceMotion")
-        defaults.removeObject(forKey: "weekStart")
-        defaults.removeObject(forKey: "monthCalculation")
-        defaults.removeObject(forKey: "dayResetMinutes")
-        defaults.removeObject(forKey: "lastSyncDate")
     }
 }
 

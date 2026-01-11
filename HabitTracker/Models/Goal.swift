@@ -6,14 +6,12 @@ enum GoalFrequency: String, CaseIterable {
     case daily
     case weekly
     case monthly
-    case yearly
     
     var label: String {
         switch self {
         case .daily: return "day"
         case .weekly: return "week"
         case .monthly: return "month"
-        case .yearly: return "year"
         }
     }
 }

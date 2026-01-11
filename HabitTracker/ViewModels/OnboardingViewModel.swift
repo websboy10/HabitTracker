@@ -152,6 +152,7 @@ final class OnboardingViewModel {
                     if success {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+                            AppSessionManager.shared.completeOnboarding()
                         }
                     } else {
                         onboardingError = "Failed to sync. Please try again."
@@ -206,8 +207,11 @@ final class OnboardingViewModel {
             }
             
             // Immediate completion
-            withAnimation(.easeInOut(duration: 0.2)) {
-                UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+            Task { @MainActor in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+                    AppSessionManager.shared.completeOnboarding()
+                }
             }
         }
     }

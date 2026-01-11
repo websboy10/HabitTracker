@@ -4,13 +4,15 @@ import SwiftUI
 enum Tab: Int, CaseIterable {
     case home
     case goals
+    case stats
     case settings
-    
+
     /// SF Symbol name for the tab icon
     var iconName: String {
         switch self {
         case .home: return "house.fill"
         case .goals: return "scope"
+        case .stats: return "chart.bar.fill"
         case .settings: return "gearshape.fill"
         }
     }
