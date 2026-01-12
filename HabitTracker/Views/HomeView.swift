@@ -9,10 +9,15 @@ struct HomeView: View {
     @State private var viewModel = HomeViewModel()
     @Binding var selectedTab: Tab
     var showsCustomTabBar: Bool = true
-    
+
     // Observe model changes to trigger re-renders when data is deleted/added
     @Query private var obligations: [ObligationModel]
     @Query private var goals: [GoalModel]
+    @Query private var weeklyNotes: [WeeklyNoteModel]
+
+    // Weekly note sheet state
+    @State private var showingWeeklyNote = false
+    @State private var selectedWeekIndex = 1
 
     var body: some View {
         let _ = obligations.count + goals.count
@@ -50,6 +55,40 @@ struct HomeView: View {
         .onAppear {
             viewModel.configure(with: modelContext)
         }
+        .sheet(isPresented: $showingWeeklyNote) {
+            WeeklyNoteSheet(
+                year: currentYear,
+                month: currentMonth,
+                weekIndex: selectedWeekIndex,
+                isPresented: $showingWeeklyNote
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.hidden)
+            .presentationBackground(.clear)
+        }
+    }
+
+    // MARK: - Date Helpers
+
+    private var currentYear: Int {
+        Calendar.current.component(.year, from: Date())
+    }
+
+    private var currentMonth: Int {
+        Calendar.current.component(.month, from: Date())
+    }
+
+    /// Set of week numbers (1-4) that have notes for current month
+    private var weeksWithNotes: Set<Int> {
+        let year = currentYear
+        let month = currentMonth
+        var result = Set<Int>()
+        for note in weeklyNotes {
+            if note.year == year && note.month == month && !note.text.isEmpty {
+                result.insert(note.weekIndex)
+            }
+        }
+        return result
     }
 
     // MARK: - Section 1: Hero
@@ -161,13 +200,20 @@ struct HomeView: View {
         .padding(.vertical, 40)
     }
 
-    // MARK: - Section 3: This Week
+    // MARK: - Section 3: This Month
 
     private var thisWeekSection: some View {
         VStack(alignment: .leading, spacing: AppSpacing.md) {
-            sectionHeader("This Week")
+            sectionHeader("This Month")
 
-            WeekOverviewCard(progress: viewModel.weekProgressModel)
+            WeekOverviewCard(
+                weeklyProgress: viewModel.monthlyWeekProgress,
+                monthlyTotals: viewModel.monthlyTotals,
+                weeksWithNotes: weeksWithNotes
+            ) { weekIndex in
+                selectedWeekIndex = weekIndex
+                showingWeeklyNote = true
+            }
         }
     }
 

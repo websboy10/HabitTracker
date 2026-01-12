@@ -55,6 +55,15 @@ final class OnboardingViewModel {
 
     // MARK: - Foundation
 
+    var userName: String = UserDefaults.standard.string(forKey: "userName") ?? "" {
+        didSet {
+            UserDefaults.standard.set(userName, forKey: "userName")
+            Task { @MainActor in
+                SettingsStore.shared.userName = userName
+            }
+        }
+    }
+
     var age: String = "" {
         didSet { UserDefaults.standard.set(age, forKey: "userAge") }
     }

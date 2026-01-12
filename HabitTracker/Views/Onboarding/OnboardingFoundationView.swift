@@ -30,6 +30,7 @@ struct OnboardingFoundationView: View {
     // Age picker state
     @State private var selectedAge: Int = 25
     @State private var showingAgePicker = false
+    @FocusState private var isNameFocused: Bool
 
     var body: some View {
         ZStack {
@@ -127,11 +128,33 @@ struct OnboardingFoundationView: View {
 
     private var formFields: some View {
         VStack(spacing: 48) {
+            // Name input
+            nameSection
+
             // Age picker
             agePickerSection
 
             // Goal options
             goalOptionsSection
+        }
+    }
+
+    // MARK: - Name Section
+
+    private var nameSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("What should we call you?")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(Color.white.opacity(0.6))
+                .padding(.leading, 4)
+
+            TextField("Your name", text: $viewModel.userName)
+                .textFieldStyle(GlassTextFieldStyle())
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .focused($isNameFocused)
+                .onSubmit { isNameFocused = false }
         }
     }
 

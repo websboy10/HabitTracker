@@ -8,9 +8,11 @@ final class ObligationScheduler {
 
     private let modelContext: ModelContext
     private let calendar = Calendar.current
+    private let deadlineEngine = DeadlineEngine.shared
 
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
+        deadlineEngine.configure(with: modelContext)
     }
 
     // MARK: - Obligation Generation
@@ -132,7 +134,10 @@ final class ObligationScheduler {
         guard let pendingObligations = try? modelContext.fetch(descriptor) else { return }
 
         for obligation in pendingObligations {
-            let deadline = completionDeadline(for: obligation, gracePeriodMinutes: gracePeriodMinutes)
+            let deadline = deadlineEngine.completionDeadline(
+                for: obligation,
+                gracePeriodMinutes: gracePeriodMinutes
+            )
             if deadline < now {
                 obligation.markMissed()
             }
@@ -193,7 +198,7 @@ final class ObligationScheduler {
     @discardableResult
     func uncompleteObligation(_ obligation: ObligationModel, gracePeriodMinutes: Int) -> Bool {
         guard obligation.isCompleted else { return false }
-        let deadline = completionDeadline(for: obligation, gracePeriodMinutes: gracePeriodMinutes)
+        let deadline = deadlineEngine.completionDeadline(for: obligation, gracePeriodMinutes: gracePeriodMinutes)
         guard Date() <= deadline else { return false }
         let success = obligation.markPending()
         if success {
@@ -216,10 +221,7 @@ final class ObligationScheduler {
     }
 
     func canToggle(_ obligation: ObligationModel, gracePeriodMinutes: Int) -> Bool {
-        guard !obligation.isMissed else { return false }
-        let deadline = completionDeadline(for: obligation, gracePeriodMinutes: gracePeriodMinutes)
-        let now = Date()
-        return now >= obligation.scheduledAt && now <= deadline
+        deadlineEngine.canToggle(obligation, gracePeriodMinutes: gracePeriodMinutes)
     }
 
     // MARK: - Counts
@@ -241,14 +243,9 @@ final class ObligationScheduler {
         }
 
         let now = Date()
-        let gracePeriodMinutes = SettingsStore.shared.gracePeriodMinutes
         let completed = todaysObligations.filter { $0.isCompleted }.count
-        let missed = todaysObligations.filter {
-            $0.isMissed || ($0.isPending && completionDeadline(for: $0, gracePeriodMinutes: gracePeriodMinutes) < now)
-        }.count
-        let pending = todaysObligations.filter {
-            $0.isPending && completionDeadline(for: $0, gracePeriodMinutes: gracePeriodMinutes) >= now
-        }.count
+        let missed = todaysObligations.filter { deadlineEngine.isEffectivelyMissed($0, at: now) }.count
+        let pending = todaysObligations.filter { deadlineEngine.isEffectivelyPending($0, at: now) }.count
 
         return (todaysObligations.count, completed, missed, pending)
     }
@@ -371,34 +368,6 @@ final class ObligationScheduler {
         dateComponents.minute = timeComponents.minute
 
         return calendar.date(from: dateComponents) ?? date
-    }
-
-    private func completionDeadline(for obligation: ObligationModel, gracePeriodMinutes: Int) -> Date {
-        let scheduledAt = obligation.scheduledAt
-        let hasExplicitTime: Bool = {
-            if let goal = fetchGoal(for: obligation.goalId) {
-                return goal.scheduledTime != nil
-            }
-            let components = calendar.dateComponents([.hour, .minute], from: scheduledAt)
-            return (components.hour ?? 0) != 0 || (components.minute ?? 0) != 0
-        }()
-
-        let baseDeadline: Date
-        if hasExplicitTime {
-            baseDeadline = scheduledAt
-        } else {
-            let resetMinutes = SettingsStore.shared.dayResetMinutes
-            let resetHour = resetMinutes / 60
-            let resetMinute = resetMinutes % 60
-            let dayStart = calendar.startOfDay(for: scheduledAt)
-            let resetSameDay = calendar.date(bySettingHour: resetHour, minute: resetMinute, second: 0, of: dayStart) ?? dayStart
-            baseDeadline = calendar.date(byAdding: .day, value: 1, to: resetSameDay) ?? resetSameDay
-        }
-
-        if gracePeriodMinutes > 0 {
-            return calendar.date(byAdding: .minute, value: gracePeriodMinutes, to: baseDeadline) ?? baseDeadline
-        }
-        return baseDeadline
     }
 
     /// Convert to ISO weekday (Monday=1, Sunday=7)

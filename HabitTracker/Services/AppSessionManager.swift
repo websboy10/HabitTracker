@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import SwiftData
 
 /// Specific phases of the app lifecycle.
 /// The app must strictly adhere to these states to avoid race conditions.
@@ -128,7 +129,7 @@ final class AppSessionManager: ObservableObject {
     }
     
     /// Deletes account from remote and wipes all local data
-    func deleteAccount() async throws {
+    func deleteAccount(modelContext: ModelContext? = nil) async throws {
         print("🛑 DELETE ACCOUNT: Initiating permanent deletion...")
         beginLogout() // Freeze sync
         
@@ -136,17 +137,20 @@ final class AppSessionManager: ObservableObject {
         try await SupabaseService.shared.deleteAccount()
         
         // 2. Logout and Wipe
-        await completeLogout(shouldWipe: true)
+        await completeLogout(shouldWipe: true, modelContext: modelContext)
     }
 
     /// Finish logout.
     /// - Parameter shouldWipe: If true, wipes all local data (Flow 6B). If false, keeps data (Flow 6A).
-    func completeLogout(shouldWipe: Bool = false) async {
+    func completeLogout(shouldWipe: Bool = false, modelContext: ModelContext? = nil) async {
         do {
-            try await SupabaseService.shared.signOut()
+            try await SupabaseService.shared.signOut(preserveLocalState: !shouldWipe)
             
             if shouldWipe {
                 wipeAllLocalData()
+                if let modelContext {
+                    wipeAllSwiftData(modelContext: modelContext)
+                }
             } else {
                 // Flow 6A: Log out (keep data)
                 // We only clear the active session tokens so the user is "logged out"
@@ -190,6 +194,18 @@ final class AppSessionManager: ObservableObject {
             "lastSyncDate"
         ]
         keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+    }
+
+    private func wipeAllSwiftData(modelContext: ModelContext) {
+        do {
+            try modelContext.delete(model: GoalModel.self)
+            try modelContext.delete(model: CategoryModel.self)
+            try modelContext.delete(model: ObligationModel.self)
+            try modelContext.delete(model: WeeklyNoteModel.self)
+            try modelContext.save()
+        } catch {
+            print("Failed to wipe local SwiftData: \(error)")
+        }
     }
     
     // MARK: - Helpers

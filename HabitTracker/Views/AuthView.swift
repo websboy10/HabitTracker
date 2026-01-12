@@ -47,35 +47,58 @@ struct AuthView: View {
 
             // Content - centered vertically
             GeometryReader { geometry in
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack {
-                        Spacer(minLength: 0)
+                ZStack(alignment: .bottom) {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack {
+                            Spacer(minLength: 0)
 
-                        // Auth Card
-                        if isSignUpMode {
-                            signUpCard
-                        } else {
-                            loginCard
+                            // Auth Card
+                            if isSignUpMode {
+                                signUpCard
+                            } else {
+                                loginCard
+                            }
+
+                            Spacer(minLength: 0)
                         }
-
-                        Spacer(minLength: 0)
+                        .frame(minHeight: geometry.size.height)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, AppSpacing.screenHorizontal)
                     }
-                    .frame(minHeight: geometry.size.height)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, AppSpacing.screenHorizontal)
-                }
-                .overlay(alignment: .bottom) {
-                    Text("Track \u{00b7} Reflect \u{00b7} Improve")
-                        .font(.system(size: 10, weight: .medium))
-                        .textCase(.uppercase)
-                        .tracking(3)
-                        .foregroundColor(Color.white.opacity(0.2))
-                        .padding(.bottom, AppSpacing.lg)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        focusedField = nil
+                    }
+
+                    // Fixed bottom tagline - layout-locked
+                    bottomTagline
+                        .frame(maxWidth: .infinity)
+                        .padding(.bottom, geometry.safeAreaInsets.bottom > 0 ? 8 : AppSpacing.lg)
                 }
             }
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .animation(.easeInOut(duration: 0.3), value: isSignUpMode)
+    }
+
+    // MARK: - Bottom Tagline
+
+    private var bottomTagline: some View {
+        Text("Track \u{00b7} Reflect \u{00b7} Improve")
+            .font(.system(size: 10, weight: .medium))
+            .textCase(.uppercase)
+            .tracking(3)
+            .foregroundColor(Color.white.opacity(0.2))
+            .padding(.vertical, AppSpacing.sm)
+            .background(
+                LinearGradient(
+                    colors: [.clear, AppColors.backgroundDark.opacity(0.6), AppColors.backgroundDark.opacity(0.8)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 60)
+                .offset(y: 10)
+            )
     }
     
     // MARK: - Login Card

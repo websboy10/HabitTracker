@@ -26,7 +26,6 @@
 		1A00001F286D400000000011 /* SplashScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000021286D400000000012 /* SplashScreen.swift */; };
 		1A000035286D400000000025 /* HabitTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000036286D400000000025 /* HabitTask.swift */; };
 		1A000037286D400000000026 /* TaskCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000038286D400000000026 /* TaskCard.swift */; };
-		1A000039286D400000000027 /* WeekOverviewCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00003A286D400000000027 /* WeekOverviewCard.swift */; };
 		1A00003B286D400000000028 /* NextWeekCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00003C286D400000000028 /* NextWeekCard.swift */; };
 		1A00003D286D400000000029 /* MonthCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00003E286D400000000029 /* MonthCard.swift */; };
 		1A000040286D40000000002B /* Goal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000041286D40000000002B /* Goal.swift */; };
@@ -36,9 +35,6 @@
 		1A000048286D40000000002F /* GoalTabPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000049286D40000000002F /* GoalTabPicker.swift */; };
 		1A00004A286D400000000030 /* GoalModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00004B286D400000000030 /* GoalModel.swift */; };
 		1A00004C286D400000000031 /* CategoryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00004D286D400000000031 /* CategoryModel.swift */; };
-		1A00004E286D400000000032 /* CompletionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00004F286D400000000032 /* CompletionModel.swift */; };
-		1A000050286D400000000033 /* TaskModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000051286D400000000033 /* TaskModel.swift */; };
-		1A000052286D400000000034 /* TaskGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000053286D400000000034 /* TaskGenerator.swift */; };
 		1A000054286D400000000035 /* ProgressCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000055286D400000000035 /* ProgressCalculator.swift */; };
 		1A000056286D400000000036 /* GoalFormSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000057286D400000000036 /* GoalFormSheet.swift */; };
 		1A000058286D400000000039 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000059286D400000000039 /* SettingsStore.swift */; };
@@ -60,7 +56,11 @@
 		1A000079286D400000000058 /* ObligationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000077286D400000000056 /* ObligationScheduler.swift */; };
 		1A00007A286D400000000059 /* AppSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00007B286D40000000005A /* AppSessionManager.swift */; };
 		1A00007C286D40000000005B /* DeadlineEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00007D286D40000000005C /* DeadlineEngine.swift */; };
-		CC9592AF56ECF04F03D22647 /* MonthlyStatsCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1C08265CC71977CDB526012 /* MonthlyStatsCache.swift */; };
+		1A000081286D400000000061 /* DeadlineProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000080286D400000000060 /* DeadlineProcessor.swift */; };
+		1A000083286D400000000063 /* WeeklyNoteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000082286D400000000062 /* WeeklyNoteService.swift */; };
+		1A000085286D400000000065 /* WeeklyNoteModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000084286D400000000064 /* WeeklyNoteModel.swift */; };
+		1A000087286D400000000067 /* WeeklyNoteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000086286D400000000066 /* WeeklyNoteSheet.swift */; };
+		1A000089286D400000000069 /* WeekOverviewCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000088286D400000000068 /* WeekOverviewCard.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -84,7 +84,6 @@
 		1A000021286D400000000012 /* SplashScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashScreen.swift; sourceTree = "<group>"; };
 		1A000036286D400000000025 /* HabitTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitTask.swift; sourceTree = "<group>"; };
 		1A000038286D400000000026 /* TaskCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskCard.swift; sourceTree = "<group>"; };
-		1A00003A286D400000000027 /* WeekOverviewCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekOverviewCard.swift; sourceTree = "<group>"; };
 		1A00003C286D400000000028 /* NextWeekCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextWeekCard.swift; sourceTree = "<group>"; };
 		1A00003E286D400000000029 /* MonthCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonthCard.swift; sourceTree = "<group>"; };
 		1A000041286D40000000002B /* Goal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Goal.swift; sourceTree = "<group>"; };
@@ -94,9 +93,6 @@
 		1A000049286D40000000002F /* GoalTabPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalTabPicker.swift; sourceTree = "<group>"; };
 		1A00004B286D400000000030 /* GoalModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalModel.swift; sourceTree = "<group>"; };
 		1A00004D286D400000000031 /* CategoryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryModel.swift; sourceTree = "<group>"; };
-		1A00004F286D400000000032 /* CompletionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompletionModel.swift; sourceTree = "<group>"; };
-		1A000051286D400000000033 /* TaskModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskModel.swift; sourceTree = "<group>"; };
-		1A000053286D400000000034 /* TaskGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskGenerator.swift; sourceTree = "<group>"; };
 		1A000055286D400000000035 /* ProgressCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressCalculator.swift; sourceTree = "<group>"; };
 		1A000057286D400000000036 /* GoalFormSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalFormSheet.swift; sourceTree = "<group>"; };
 		1A000059286D400000000039 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
@@ -118,9 +114,13 @@
 		1A000077286D400000000056 /* ObligationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObligationScheduler.swift; sourceTree = "<group>"; };
 		1A00007B286D40000000005A /* AppSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSessionManager.swift; sourceTree = "<group>"; };
 		1A00007D286D40000000005C /* DeadlineEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeadlineEngine.swift; sourceTree = "<group>"; };
+		1A000080286D400000000060 /* DeadlineProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeadlineProcessor.swift; sourceTree = "<group>"; };
+		1A000082286D400000000062 /* WeeklyNoteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyNoteService.swift; sourceTree = "<group>"; };
+		1A000084286D400000000064 /* WeeklyNoteModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyNoteModel.swift; sourceTree = "<group>"; };
+		1A000086286D400000000066 /* WeeklyNoteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyNoteSheet.swift; sourceTree = "<group>"; };
+		1A000088286D400000000068 /* WeekOverviewCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekOverviewCard.swift; sourceTree = "<group>"; };
 		2EE2F7C22F10244700BE4BCF /* HabitTrackerRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HabitTrackerRelease.entitlements; sourceTree = "<group>"; };
 		2EE2F7C32F12E6E600BE4BCF /* HabitTracker.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HabitTracker.entitlements; sourceTree = "<group>"; };
-		D1C08265CC71977CDB526012 /* MonthlyStatsCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MonthlyStatsCache.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -196,7 +196,6 @@
 				1A000016286D40000000000B /* StatCard.swift */,
 				1A000018286D40000000000C /* TabBar.swift */,
 				1A000038286D400000000026 /* TaskCard.swift */,
-				1A00003A286D400000000027 /* WeekOverviewCard.swift */,
 				1A00003C286D400000000028 /* NextWeekCard.swift */,
 				1A00003E286D400000000029 /* MonthCard.swift */,
 				1A000045286D40000000002D /* GoalCard.swift */,
@@ -204,6 +203,8 @@
 				1A000049286D40000000002F /* GoalTabPicker.swift */,
 				1A00005B286D40000000003A /* SettingsComponents.swift */,
 				1A00005F286D40000000003D /* SwipeableContainer.swift */,
+				1A000086286D400000000066 /* WeeklyNoteSheet.swift */,
+				1A000088286D400000000068 /* WeekOverviewCard.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -248,7 +249,6 @@
 		1A000058286D400000000037 /* Services */ = {
 			isa = PBXGroup;
 			children = (
-				1A000053286D400000000034 /* TaskGenerator.swift */,
 				1A000055286D400000000035 /* ProgressCalculator.swift */,
 				1A000075286D400000000054 /* StatsCalculator.swift */,
 				1A00005D286D40000000003B /* HapticManager.swift */,
@@ -257,6 +257,8 @@
 				1A000071286D400000000050 /* SyncService.swift */,
 				1A00007B286D40000000005A /* AppSessionManager.swift */,
 				1A00007D286D40000000005C /* DeadlineEngine.swift */,
+				1A000080286D400000000060 /* DeadlineProcessor.swift */,
+				1A000082286D400000000062 /* WeeklyNoteService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -266,10 +268,8 @@
 			children = (
 				1A00004B286D400000000030 /* GoalModel.swift */,
 				1A00004D286D400000000031 /* CategoryModel.swift */,
-				1A00004F286D400000000032 /* CompletionModel.swift */,
 				1A000076286D400000000055 /* ObligationModel.swift */,
-				1A000051286D400000000033 /* TaskModel.swift */,
-				D1C08265CC71977CDB526012 /* MonthlyStatsCache.swift */,
+				1A000084286D400000000064 /* WeeklyNoteModel.swift */,
 			);
 			path = SwiftData;
 			sourceTree = "<group>";
@@ -371,7 +371,6 @@
 				1A00001F286D400000000010 /* HomeViewModel.swift in Sources */,
 				1A000035286D400000000025 /* HabitTask.swift in Sources */,
 				1A000037286D400000000026 /* TaskCard.swift in Sources */,
-				1A000039286D400000000027 /* WeekOverviewCard.swift in Sources */,
 				1A00003B286D400000000028 /* NextWeekCard.swift in Sources */,
 				1A00003D286D400000000029 /* MonthCard.swift in Sources */,
 				1A000040286D40000000002B /* Goal.swift in Sources */,
@@ -381,9 +380,6 @@
 				1A000048286D40000000002F /* GoalTabPicker.swift in Sources */,
 				1A00004A286D400000000030 /* GoalModel.swift in Sources */,
 				1A00004C286D400000000031 /* CategoryModel.swift in Sources */,
-				1A00004E286D400000000032 /* CompletionModel.swift in Sources */,
-				1A000050286D400000000033 /* TaskModel.swift in Sources */,
-				1A000052286D400000000034 /* TaskGenerator.swift in Sources */,
 				1A000054286D400000000035 /* ProgressCalculator.swift in Sources */,
 				1A000056286D400000000036 /* GoalFormSheet.swift in Sources */,
 				1A000058286D400000000039 /* SettingsStore.swift in Sources */,
@@ -406,7 +402,11 @@
 				1A000078286D400000000057 /* ObligationModel.swift in Sources */,
 				1A000079286D400000000058 /* ObligationScheduler.swift in Sources */,
 				1A00007C286D40000000005B /* DeadlineEngine.swift in Sources */,
-				CC9592AF56ECF04F03D22647 /* MonthlyStatsCache.swift in Sources */,
+				1A000081286D400000000061 /* DeadlineProcessor.swift in Sources */,
+				1A000083286D400000000063 /* WeeklyNoteService.swift in Sources */,
+				1A000085286D400000000065 /* WeeklyNoteModel.swift in Sources */,
+				1A000087286D400000000067 /* WeeklyNoteSheet.swift in Sources */,
+				1A000089286D400000000069 /* WeekOverviewCard.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

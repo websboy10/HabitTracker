@@ -13,10 +13,10 @@ struct GoalsView: View {
         ZStack {
             // Background
             AppMaterials.moodGradient
-            
+
             // Scrollable content
             goalsList
-            
+
             // Fixed bottom elements
             if showsCustomTabBar {
                 VStack {
@@ -157,11 +157,11 @@ struct GoalsView: View {
     private var bottomNavigation: some View {
         VStack(spacing: 0) {
             LinearGradient(
-                colors: [.clear, AppColors.backgroundDark.opacity(0.8), AppColors.backgroundDark],
+                colors: [.clear, AppColors.backgroundDark.opacity(0.96), AppColors.backgroundDark],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: 32)
+            .frame(height: 72)
             
             TabBar(selectedTab: $selectedTab)
                 .padding(.horizontal, AppSpacing.screenHorizontal)

@@ -24,14 +24,19 @@ final class SyncService: ObservableObject {
     }
     
     // MARK: - Date Formatting
+    private let calendar = Calendar.current
     private let iso8601Formatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f
     }()
     
+    private let deletedGoalsKey = "deleted_goal_ids"
+    private var deletedGoalIds: Set<UUID> = []
+
     private init() {
         lastSyncDate = UserDefaults.standard.object(forKey: "lastSyncDate") as? Date
+        deletedGoalIds = loadDeletedGoalIds()
     }
     
     // MARK: - Full Sync
@@ -60,8 +65,8 @@ final class SyncService: ObservableObject {
             // Sync goals
             try await syncGoals(modelContext: modelContext)
             
-            // Sync completions
-            try await syncCompletions(modelContext: modelContext)
+            // Sync obligations
+            try await syncObligations(modelContext: modelContext)
             
             // Update last sync time
             lastSyncDate = Date()
@@ -158,6 +163,9 @@ final class SyncService: ObservableObject {
         // Add remote goals that don't exist locally
         for (id, remote) in remoteDict {
             if localDict[id] == nil {
+                if deletedGoalIds.contains(id) {
+                    continue
+                }
                 let categoryId = remote.categoryId.flatMap { UUID(uuidString: $0) } ?? UUID()
                 let scheduledTime = remote.scheduledTime.flatMap { iso8601Formatter.date(from: $0) }
                 let local = GoalModel(
@@ -222,69 +230,69 @@ final class SyncService: ObservableObject {
         try modelContext.save()
     }
     
-    // MARK: - Completion Sync
-    
-    private func syncCompletions(modelContext: ModelContext) async throws {
+    // MARK: - Obligation Sync
+
+    private func syncObligations(modelContext: ModelContext) async throws {
         guard let userId = supabase.currentUserId else { return }
-        
-        // For completions, we do a simpler approach:
-        // Get completions from the last 30 days and merge
-        let startDate = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
-        let endDate = Date()
-        
-        let remoteCompletions = try await supabase.getCompletions(from: startDate, to: endDate)
-        
-        // Fetch local completions for the same period
-        let descriptor = FetchDescriptor<CompletionModel>(
-            predicate: #Predicate { $0.completedAt >= startDate && $0.completedAt <= endDate }
+
+        let (startDate, endDate) = obligationSyncRange()
+        let remoteObligations = try await supabase.getObligations(from: startDate, to: endDate)
+
+        let descriptor = FetchDescriptor<ObligationModel>(
+            predicate: #Predicate { $0.scheduledAt >= startDate && $0.scheduledAt < endDate }
         )
-        let localCompletions = try modelContext.fetch(descriptor)
-        
-        // Create lookup dictionaries
-        let remoteDict = Dictionary(uniqueKeysWithValues: remoteCompletions.compactMap { 
-            completion -> (UUID, CompletionDTO)? in
-            guard let id = completion.id, let uuid = UUID(uuidString: id) else { return nil }
-            return (uuid, completion)
+        let localObligations = try modelContext.fetch(descriptor)
+
+        let goalDescriptor = FetchDescriptor<GoalModel>()
+        let localGoals = try modelContext.fetch(goalDescriptor)
+        let localGoalIds = Set(localGoals.map { $0.id })
+
+        let remoteDict = Dictionary(uniqueKeysWithValues: remoteObligations.compactMap {
+            obligation -> (UUID, ObligationDTO)? in
+            guard let id = obligation.id, let uuid = UUID(uuidString: id) else { return nil }
+            return (uuid, obligation)
         })
-        
-        let localDict = Dictionary(uniqueKeysWithValues: localCompletions.map { ($0.id, $0) })
-        
-        // Add remote completions that don't exist locally
+        let localDict = Dictionary(uniqueKeysWithValues: localObligations.map { ($0.id, $0) })
+
+        var obligationsToUpload: [ObligationDTO] = []
+
         for (id, remote) in remoteDict {
-            if localDict[id] == nil {
-                guard let goalId = UUID(uuidString: remote.goalId),
-                      let completedAt = iso8601Formatter.date(from: remote.completedAt) else { continue }
-                
-                let local = CompletionModel(
-                    id: id,
-                    goalId: goalId,
-                    completedAt: completedAt,
-                    value: remote.value ?? 1.0
-                )
+            if let local = localDict[id] {
+                let remoteUpdatedAt = remote.updatedAt.flatMap { iso8601Formatter.date(from: $0) }
+                let remoteIsMissed = remote.status == "missed"
+
+                if local.isMissed && !remoteIsMissed {
+                    obligationsToUpload.append(makeObligationDTO(from: local, userId: userId))
+                    continue
+                }
+
+                if remoteIsMissed && !local.isMissed {
+                    applyRemoteObligation(remote, to: local, remoteUpdatedAt: remoteUpdatedAt)
+                    continue
+                }
+
+                if let remoteUpdatedAt, remoteUpdatedAt > local.updatedAt {
+                    applyRemoteObligation(remote, to: local, remoteUpdatedAt: remoteUpdatedAt)
+                } else if let remoteUpdatedAt {
+                    if local.updatedAt > remoteUpdatedAt {
+                        obligationsToUpload.append(makeObligationDTO(from: local, userId: userId))
+                    }
+                } else {
+                    obligationsToUpload.append(makeObligationDTO(from: local, userId: userId))
+                }
+            } else if let local = makeLocalObligation(from: remote, allowedGoalIds: localGoalIds) {
                 modelContext.insert(local)
             }
         }
-        
-        // Upload local completions that don't exist remotely
-        var completionsToUpload: [CompletionDTO] = []
-        for (id, local) in localDict {
-            if remoteDict[id] == nil {
-                let dto = CompletionDTO(
-                    id: id.uuidString,
-                    userId: userId,
-                    goalId: local.goalId.uuidString,
-                    completedAt: iso8601Formatter.string(from: local.completedAt),
-                    value: local.value
-                )
-                completionsToUpload.append(dto)
-            }
+
+        for (id, local) in localDict where remoteDict[id] == nil {
+            obligationsToUpload.append(makeObligationDTO(from: local, userId: userId))
         }
-        
-        // Batch upload
-        if !completionsToUpload.isEmpty {
-            _ = try await supabase.upsertCompletions(completionsToUpload)
+
+        if !obligationsToUpload.isEmpty {
+            _ = try await supabase.upsertObligations(obligationsToUpload)
         }
-        
+
         try modelContext.save()
     }
     
@@ -377,42 +385,33 @@ final class SyncService: ObservableObject {
         guard AppSessionManager.shared.state == .running else { return }
         guard isCloudSyncEnabled else { return }
         do {
+            try await supabase.deleteObligations(goalId: goalId.uuidString)
             try await supabase.deleteGoal(id: goalId.uuidString)
+            clearLocalGoalDeletion(goalId)
         } catch {
             print("Failed to sync goal deletion: \(error)")
         }
     }
-    
-    /// Sync a completion creation to cloud
-    func syncCompletionCreation(_ completion: CompletionModel) async {
-        guard AppSessionManager.shared.state == .running else { return }
-        guard isCloudSyncEnabled else { return }
-        guard let userId = supabase.currentUserId else { return }
-        
-        let dto = CompletionDTO(
-            id: completion.id.uuidString,
-            userId: userId,
-            goalId: completion.goalId.uuidString,
-            completedAt: iso8601Formatter.string(from: completion.completedAt),
-            value: completion.value
-        )
-        
-        do {
-            _ = try await supabase.createCompletion(dto)
-        } catch {
-            print("Failed to sync completion creation: \(error)")
-        }
+
+    func recordLocalGoalDeletion(_ goalId: UUID) {
+        deletedGoalIds.insert(goalId)
+        persistDeletedGoalIds()
     }
-    
-    /// Sync a completion deletion to cloud
-    func syncCompletionDeletion(_ completionId: UUID) async {
-        guard AppSessionManager.shared.state == .running else { return }
-        guard isCloudSyncEnabled else { return }
-        do {
-            try await supabase.deleteCompletion(id: completionId.uuidString)
-        } catch {
-            print("Failed to sync completion deletion: \(error)")
-        }
+
+    private func clearLocalGoalDeletion(_ goalId: UUID) {
+        deletedGoalIds.remove(goalId)
+        persistDeletedGoalIds()
+    }
+
+    private func loadDeletedGoalIds() -> Set<UUID> {
+        let stored = UserDefaults.standard.stringArray(forKey: deletedGoalsKey) ?? []
+        let ids = stored.compactMap { UUID(uuidString: $0) }
+        return Set(ids)
+    }
+
+    private func persistDeletedGoalIds() {
+        let values = deletedGoalIds.map { $0.uuidString }
+        UserDefaults.standard.set(values, forKey: deletedGoalsKey)
     }
     
     // MARK: - Settings Sync
@@ -516,7 +515,110 @@ final class SyncService: ObservableObject {
     // MARK: - Obligation Sync
     
     func syncObligationUpdate(_ obligation: ObligationModel) async {
-        // TODO: Implement obligation sync logic
-        print("Syncing obligation update: \(obligation.id)")
+        guard AppSessionManager.shared.state == .running else { return }
+        guard isCloudSyncEnabled else { return }
+        guard let userId = supabase.currentUserId else { return }
+
+        let dto = makeObligationDTO(from: obligation, userId: userId)
+        do {
+            _ = try await supabase.upsertObligations([dto])
+        } catch {
+            print("Failed to sync obligation update: \(error)")
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func obligationSyncRange() -> (start: Date, end: Date) {
+        let now = Date()
+        let today = calendar.startOfDay(for: now)
+        let start = Date(timeIntervalSince1970: 0)
+        let end = calendar.date(byAdding: .year, value: 5, to: today) ?? now
+        return (start, end)
+    }
+
+    private func makeLocalObligation(from remote: ObligationDTO, allowedGoalIds: Set<UUID>) -> ObligationModel? {
+        guard let idString = remote.id, let id = UUID(uuidString: idString) else { return nil }
+        guard let goalId = UUID(uuidString: remote.goalId) else { return nil }
+        guard let scheduledAt = iso8601Formatter.date(from: remote.scheduledAt) else { return nil }
+        guard allowedGoalIds.contains(goalId) else { return nil }
+
+        let createdAt = remote.createdAt.flatMap { iso8601Formatter.date(from: $0) } ?? Date()
+        let updatedAt = remote.updatedAt.flatMap { iso8601Formatter.date(from: $0) } ?? createdAt
+        let obligation = ObligationModel(
+            id: id,
+            goalId: goalId,
+            scheduledAt: scheduledAt,
+            status: remote.status,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+
+        if remote.status == "completed" {
+            obligation.completedAt = updatedAt
+        } else if remote.status == "missed" {
+            obligation.completedAt = nil
+        }
+
+        if let lockedAtString = remote.lockedAt,
+           let lockedAt = iso8601Formatter.date(from: lockedAtString) {
+            obligation.lockedAt = lockedAt
+        } else if remote.status == "missed" {
+            obligation.lockedAt = updatedAt
+        }
+
+        return obligation
+    }
+
+    private func applyRemoteObligation(
+        _ remote: ObligationDTO,
+        to local: ObligationModel,
+        remoteUpdatedAt: Date?
+    ) {
+        if let goalId = UUID(uuidString: remote.goalId) {
+            local.goalId = goalId
+        }
+        if let scheduledAt = iso8601Formatter.date(from: remote.scheduledAt) {
+            local.scheduledAt = scheduledAt
+        }
+
+        local.status = remote.status
+        if remote.status == "completed" {
+            if local.completedAt == nil {
+                local.completedAt = remoteUpdatedAt ?? local.completedAt ?? Date()
+            }
+        } else {
+            local.completedAt = nil
+        }
+
+        if let lockedAtString = remote.lockedAt,
+           let lockedAt = iso8601Formatter.date(from: lockedAtString) {
+            local.lockedAt = lockedAt
+        } else if remote.status == "missed" {
+            local.lockedAt = local.lockedAt ?? remoteUpdatedAt ?? Date()
+        } else {
+            local.lockedAt = nil
+        }
+
+        if let remoteCreatedAt = remote.createdAt.flatMap({ iso8601Formatter.date(from: $0) }) {
+            local.createdAt = remoteCreatedAt
+        }
+        if let remoteUpdatedAt = remoteUpdatedAt {
+            local.updatedAt = remoteUpdatedAt
+        }
+    }
+
+    private func makeObligationDTO(from obligation: ObligationModel, userId: String) -> ObligationDTO {
+        let lockedAt = obligation.lockedAt.map { iso8601Formatter.string(from: $0) }
+        return ObligationDTO(
+            id: obligation.id.uuidString,
+            userId: userId,
+            goalId: obligation.goalId.uuidString,
+            scheduledAt: iso8601Formatter.string(from: obligation.scheduledAt),
+            status: obligation.status,
+            lockedAt: lockedAt,
+            createdAt: iso8601Formatter.string(from: obligation.createdAt),
+            updatedAt: iso8601Formatter.string(from: obligation.updatedAt)
+        )
     }
 }

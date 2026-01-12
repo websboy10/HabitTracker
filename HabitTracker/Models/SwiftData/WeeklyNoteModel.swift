@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 
-/// SwiftData model for weekly notes (local-only).
+/// SwiftData model for weekly notes (local cache; synced when cloud mode is enabled).
 @Model
 final class WeeklyNoteModel {
 

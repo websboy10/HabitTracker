@@ -29,9 +29,7 @@ final class HomeViewModel {
         // Ensure rolling 12 months for stats accuracy (Row-Based Truth)
         obligationScheduler?.ensureRolling12MonthObligations()
 
-        // Check for missed obligations using global grace period
-        let gracePeriod = SettingsStore.shared.gracePeriodMinutes
-        obligationScheduler?.checkAndMarkMissedObligations(gracePeriodMinutes: gracePeriod)
+        DeadlineProcessor.shared.processPendingObligations(modelContext: modelContext)
 
         scheduleDailyReset()
     }
@@ -80,6 +78,22 @@ final class HomeViewModel {
         )
     }
 
+    /// Monthly week progress for Monthly Ledger (weeks 1-4)
+    var monthlyWeekProgress: [(completed: Int, total: Int, percentage: Double)] {
+        progressCalculator?.monthlyWeekProgress() ?? Array(repeating: (0, 0, 0), count: 4)
+    }
+
+    /// Monthly totals for Monthly Ledger header (entire month)
+    var monthlyTotals: (completed: Int, total: Int) {
+        progressCalculator?.monthlyTotals() ?? (0, 0)
+    }
+    
+    /// Full monthly stats including completed, missed, pending, total, and percentage.
+    /// This matches StatsCalculator's monthProgress output for consistency.
+    var monthlyFullStats: (completed: Int, missed: Int, pending: Int, total: Int, percentage: Double) {
+        progressCalculator?.monthlyStats() ?? (0, 0, 0, 0, 0)
+    }
+
     // MARK: - Actions
 
     /// Toggle an obligation completion if within its window
@@ -112,9 +126,8 @@ final class HomeViewModel {
         let interval = max(1, nextReset.timeIntervalSince(now))
 
         resetTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
-            guard let self, let obligationScheduler = self.obligationScheduler else { return }
-            let gracePeriod = SettingsStore.shared.gracePeriodMinutes
-            obligationScheduler.checkAndMarkMissedObligations(gracePeriodMinutes: gracePeriod)
+            guard let self, let obligationScheduler = self.obligationScheduler, let modelContext = self.modelContext else { return }
+            DeadlineProcessor.shared.processPendingObligations(modelContext: modelContext)
             obligationScheduler.generateCurrentMonthObligations()
             self.scheduleDailyReset()
         }
@@ -137,9 +150,9 @@ final class HomeViewModel {
     func refreshObligations() {
         guard let obligationScheduler else { return }
 
-        // Check for missed obligations
-        let gracePeriod = SettingsStore.shared.gracePeriodMinutes
-        obligationScheduler.checkAndMarkMissedObligations(gracePeriodMinutes: gracePeriod)
+        if let context = modelContext {
+            DeadlineProcessor.shared.processPendingObligations(modelContext: context)
+        }
 
         // Generate obligations for the current month
         obligationScheduler.generateCurrentMonthObligations()

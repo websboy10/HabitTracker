@@ -592,111 +592,95 @@ struct SettingsView: View {
     // MARK: - Data Management
     
     private func exportData() {
-        let isoFormatter = ISO8601DateFormatter()
-        let dateTimeFormatter = DateFormatter()
-        dateTimeFormatter.dateStyle = .medium
-        dateTimeFormatter.timeStyle = .short
+        let date = Date()
         let dateFormatter = DateFormatter()
-        dateFormatter.dateStyle = .medium
-        dateFormatter.timeStyle = .none
-
-        // Create export data
-        var exportDict: [String: Any] = [
-            "readMe": [
-                "This file is your Habit Tracker data export.",
-                "Sections are written in plain language and also include IDs for import.",
-                "Dates include both ISO 8601 and local readable formats."
-            ],
-            "exportInfo": [
-                "app": "HabitTracker",
-                "formatVersion": 1
-            ],
-            "settings": [
-                "theme": settings.selectedTheme.rawValue,
-                "reduceMotion": settings.reduceMotion,
-                "weekStart": settings.weekStart.rawValue,
-                "monthCalculation": settings.monthCalculation.rawValue,
-                "dayResetMinutes": settings.dayResetMinutes,
-                "userName": settings.userName,
-                "userTitle": settings.userTitle
-            ],
-            "exportDate": isoFormatter.string(from: Date()),
-            "exportDateReadable": dateTimeFormatter.string(from: Date())
-        ]
+        dateFormatter.dateStyle = .long
+        dateFormatter.timeStyle = .short
         
-        // Fetch categories, goals, and completions
-        let categoriesDescriptor = FetchDescriptor<CategoryModel>()
-        let goalsDescriptor = FetchDescriptor<GoalModel>()
-        let completionsDescriptor = FetchDescriptor<CompletionModel>()
-
-        var categoryNameById: [UUID: String] = [:]
-        var goalTitleById: [UUID: String] = [:]
-        if let categories = try? modelContext.fetch(categoriesDescriptor) {
-            exportDict["categories"] = categories.map { category in
-                [
-                    "id": category.id.uuidString,
-                    "name": category.name,
-                    "colorHex": category.colorHex
-                ]
-            }
-            categoryNameById = Dictionary(
-                uniqueKeysWithValues: categories.map { ($0.id, $0.name) }
-            )
-        }
+        let header = """
+        HABIT TRACKER DATA EXPORT
+        Generated: \(dateFormatter.string(from: date))
+        User: \(settings.userName)
         
-        if let goals = try? modelContext.fetch(goalsDescriptor) {
-            goalTitleById = Dictionary(
-                uniqueKeysWithValues: goals.map { ($0.id, $0.title) }
-            )
-            exportDict["goals"] = goals.map { goal -> [String: Any] in
-                var goalDict: [String: Any] = [
-                    "id": goal.id.uuidString,
-                    "title": goal.title,
-                    "categoryId": goal.categoryId.uuidString,
-                    "categoryName": categoryNameById[goal.categoryId] ?? "Unknown",
-                    "recurrenceType": goal.recurrenceType,
-                    "recurrence": goal.recurrenceText,
-                    "weekdays": goal.weekdays,
-                    "status": goal.status.capitalized,
-                    "createdAt": isoFormatter.string(from: goal.createdAt),
-                    "createdAtReadable": dateTimeFormatter.string(from: goal.createdAt)
-                ]
-                if let customInterval = goal.customIntervalDays {
-                    goalDict["customIntervalDays"] = customInterval
+        ==================================================
+        """
+        
+        // 1. Fetch Goals (Tasks)
+        var goalsSection = "\n\n--- YOUR TASKS ---\n"
+        let goalsDescriptor = FetchDescriptor<GoalModel>(sortBy: [SortDescriptor(\.createdAt)])
+        if let goals = try? modelContext.fetch(goalsDescriptor), !goals.isEmpty {
+            for goal in goals {
+                goalsSection += "- \(goal.title)\n"
+                goalsSection += "  Frequency: \(goal.recurrenceText)\n"
+                if let time = goal.timeText {
+                    goalsSection += "  Time: \(time)\n"
                 }
-                if let timeText = goal.timeText {
-                    goalDict["scheduledTime"] = timeText
-                }
-                return goalDict
+                goalsSection += "  Status: \(goal.status.capitalized)\n"
+                goalsSection += "\n"
             }
+        } else {
+            goalsSection += "No tasks found.\n"
         }
         
-        if let completions = try? modelContext.fetch(completionsDescriptor) {
-            exportDict["completions"] = completions.map { completion in
-                [
-                    "id": completion.id.uuidString,
-                    "goalId": completion.goalId.uuidString,
-                    "goalTitle": goalTitleById[completion.goalId] ?? "Unknown Goal",
-                    "completedAt": isoFormatter.string(from: completion.completedAt),
-                    "completedAtReadable": dateTimeFormatter.string(from: completion.completedAt),
-                    "completedOn": dateFormatter.string(from: completion.completedAt),
-                    "value": completion.value
-                ]
+        // 2. Fetch Weekly Notes
+        var notesSection = "\n--- WEEKLY NOTES ---\n"
+        let notesDescriptor = FetchDescriptor<WeeklyNoteModel>(sortBy: [
+            SortDescriptor(\.year, order: .reverse),
+            SortDescriptor(\.month, order: .reverse),
+            SortDescriptor(\.weekIndex, order: .reverse)
+        ])
+        
+        if let notes = try? modelContext.fetch(notesDescriptor), !notes.isEmpty {
+            for note in notes {
+                // Determine month name for header
+                let monthName = DateFormatter().monthSymbols[note.month - 1]
+                notesSection += "Week \(note.weekIndex), \(monthName) \(note.year)\n"
+                notesSection += "----------------------------\n"
+                notesSection += note.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                notesSection += "\n\n"
             }
+        } else {
+            notesSection += "No weekly notes found.\n"
         }
-
-        let goalsCount = (exportDict["goals"] as? [[String: Any]])?.count ?? 0
-        let completionsCount = (exportDict["completions"] as? [[String: Any]])?.count ?? 0
-        exportDict["summary"] = [
-            "goals": goalsCount,
-            "completions": completionsCount
-        ]
+        
+        // 3. Calculate Stats
+        // We need to use StatsCalculator. Since we are in a View, we are on MainActor.
+        let calculator = StatsCalculator(modelContext: modelContext)
+        var statsSection = "\n--- STATISTICS ---\n"
+        
+        // Yearly Stats
+        let yearly = calculator.yearlyStats()
+        statsSection += "Yearly Completion: \(Int(yearly.completedPercent * 100))%\n"
+        
+        // Monthly Stats
+        let monthly = calculator.monthProgress()
+        statsSection += "Current Month (\(monthly.monthName) \(monthly.year)):\n"
+        statsSection += "  Completion: \(Int(monthly.completedPercent * 100))%\n"
+        statsSection += "  Completed: \(monthly.completed)\n"
+        statsSection += "  Missed: \(monthly.missed)\n"
+        
+        // Lifetime Missed
+        let missed = calculator.lifetimeMissed()
+        statsSection += "\nLifetime Missed Obligations: \(missed)\n"
+        
+        // Consistency Table
+        statsSection += "\nGoal Consistency:\n"
+        let consistency = calculator.goalConsistencyTable()
+        if !consistency.isEmpty {
+            for entry in consistency {
+                statsSection += "- \(entry.title): \(Int(entry.consistency * 100))%\n"
+            }
+        } else {
+            statsSection += "No consistency data available.\n"
+        }
+        
+        // Assemble Final Text
+        let finalOutput = header + goalsSection + notesSection + statsSection
         
         // Write to file
         do {
-            let data = try JSONSerialization.data(withJSONObject: exportDict, options: .prettyPrinted)
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("habit_tracker_export.json")
-            try data.write(to: tempURL)
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("HabitTracker_Export.txt")
+            try finalOutput.write(to: tempURL, atomically: true, encoding: .utf8)
             exportURL = tempURL
             showingExportSheet = true
         } catch {
@@ -718,11 +702,10 @@ struct SettingsView: View {
             // 2. Clear local SwiftData
             await MainActor.run {
                 do {
-                    try modelContext.delete(model: CompletionModel.self)
                     try modelContext.delete(model: ObligationModel.self)
-                    try modelContext.delete(model: TaskModel.self)
                     try modelContext.delete(model: GoalModel.self)
                     try modelContext.delete(model: CategoryModel.self)
+                    try modelContext.delete(model: WeeklyNoteModel.self)
                     try modelContext.save()
                     print("✅ Local data reset successfully")
                 } catch {
@@ -741,7 +724,7 @@ struct SettingsView: View {
         Task {
             // Deletion logic handled by manager (Remote + Local Wipe)
             do {
-                try await AppSessionManager.shared.deleteAccount()
+                try await AppSessionManager.shared.deleteAccount(modelContext: modelContext)
             } catch {
                 print("Failed to delete account data: \(error)")
                 // If it fails, we still want to log out in UI?
@@ -773,9 +756,8 @@ struct SettingsView: View {
         do {
             try modelContext.delete(model: GoalModel.self)
             try modelContext.delete(model: CategoryModel.self)
-            try modelContext.delete(model: CompletionModel.self)
             try modelContext.delete(model: ObligationModel.self)
-            try modelContext.delete(model: TaskModel.self)
+            try modelContext.delete(model: WeeklyNoteModel.self)
             try modelContext.save()
         } catch {
             print("Failed to clear local data: \(error)")

@@ -301,3 +301,80 @@ DROP TRIGGER IF EXISTS on_profile_created ON profiles;
 CREATE TRIGGER on_profile_created
     AFTER INSERT ON profiles
     FOR EACH ROW EXECUTE FUNCTION public.seed_default_categories();
+
+-- ============================================
+-- OBLIGATIONS TABLE
+-- ============================================
+CREATE TABLE IF NOT EXISTS obligations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    goal_id UUID NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+    scheduled_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    locked_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Enable RLS
+ALTER TABLE obligations ENABLE ROW LEVEL SECURITY;
+
+-- Policies
+CREATE POLICY "Users can view own obligations" ON obligations
+    FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own obligations" ON obligations
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own obligations" ON obligations
+    FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own obligations" ON obligations
+    FOR DELETE USING (auth.uid() = user_id);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS obligations_user_id_idx ON obligations(user_id);
+CREATE INDEX IF NOT EXISTS obligations_goal_id_idx ON obligations(goal_id);
+CREATE INDEX IF NOT EXISTS obligations_scheduled_at_idx ON obligations(scheduled_at);
+
+-- Trigger for updated_at
+CREATE TRIGGER update_obligations_updated_at
+    BEFORE UPDATE ON obligations
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- WEEKLY NOTES TABLE
+-- ============================================
+CREATE TABLE IF NOT EXISTS weekly_notes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    year INTEGER NOT NULL,
+    month INTEGER NOT NULL,
+    week_index INTEGER NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(user_id, year, month, week_index)
+);
+
+-- Enable RLS
+ALTER TABLE weekly_notes ENABLE ROW LEVEL SECURITY;
+
+-- Policies
+CREATE POLICY "Users can view own weekly_notes" ON weekly_notes
+    FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own weekly_notes" ON weekly_notes
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own weekly_notes" ON weekly_notes
+    FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own weekly_notes" ON weekly_notes
+    FOR DELETE USING (auth.uid() = user_id);
+
+-- Trigger for updated_at
+CREATE TRIGGER update_weekly_notes_updated_at
+    BEFORE UPDATE ON weekly_notes
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+

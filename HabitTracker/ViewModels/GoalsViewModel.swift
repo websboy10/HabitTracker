@@ -106,6 +106,8 @@ final class GoalsViewModel {
     func deleteGoal(_ goal: GoalModel) {
         guard let modelContext else { return }
         let goalId = goal.id
+
+        SyncService.shared.recordLocalGoalDeletion(goalId)
         
         // First, delete all obligations associated with this goal
         let obligationDescriptor = FetchDescriptor<ObligationModel>()

@@ -16,10 +16,8 @@ struct HabitTrackerApp: App {
             let schema = Schema([
                 GoalModel.self,
                 CategoryModel.self,
-                CompletionModel.self,
-                TaskModel.self,
                 ObligationModel.self,
-                MonthlyStatsCache.self
+                WeeklyNoteModel.self
             ])
             let modelConfiguration = ModelConfiguration(
                 schema: schema,
@@ -101,6 +99,11 @@ struct HabitTrackerApp: App {
                         // Only sync if we are strictly in sync phase (and splash is done)
                         // We might want to wait for splash, but SessionManager handles logic.
                         if StorageMode.current == .cloud {
+                             // Ensure local state is strictly up to date before syncing
+                             await MainActor.run {
+                                 DeadlineProcessor.shared.processPendingObligations(modelContext: modelContainer.mainContext)
+                             }
+                             
                              await SyncService.shared.performFullSync(
                                 modelContext: modelContainer.mainContext
                             )

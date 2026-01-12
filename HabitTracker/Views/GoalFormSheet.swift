@@ -26,6 +26,7 @@ struct GoalFormSheet: View {
     @Query(sort: \CategoryModel.sortOrder) private var categories: [CategoryModel]
 
     @Namespace private var animation
+    @FocusState private var isTextFieldFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -39,6 +40,7 @@ struct GoalFormSheet: View {
                         formSection("Title") {
                             TextField("Goal name", text: $title)
                                 .textFieldStyle(GlassTextFieldStyle())
+                                .focused($isTextFieldFocused)
                         }
 
                         // Category
@@ -73,6 +75,10 @@ struct GoalFormSheet: View {
                     }
                     .padding(AppSpacing.screenHorizontal)
                     .padding(.top, AppSpacing.md)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    isTextFieldFocused = false
                 }
             }
             .navigationTitle(editingGoal == nil ? "New Goal" : "Edit Goal")
@@ -400,6 +406,8 @@ struct GoalFormSheet: View {
     private func deleteGoal() {
         guard let goal = editingGoal else { return }
         let goalId = goal.id
+
+        SyncService.shared.recordLocalGoalDeletion(goalId)
         
         // Delete all obligations associated with this goal
         let obligationDescriptor = FetchDescriptor<ObligationModel>()

@@ -30,41 +30,15 @@ final class StatsCalculator {
             return YearlyStats(completedPercent: 0, year: targetYear)
         }
         
-        // Days in year (365 or 366 for leap year)
-        let daysInYear = calendar.dateComponents([.day], from: yearStart, to: yearEnd).day ?? 365
-        
         // For current year, only count days up to today
         let effectiveEnd = min(yearEnd, now)
-        let effectiveDays = calendar.dateComponents([.day], from: yearStart, to: effectiveEnd).day ?? daysInYear
-        
-        // Fetch all daily goals that were active during the year
-        let dailyGoals = fetchDailyGoalsActiveInYear(targetYear)
-        
-        // Expected = effective days × daily goals count
-        let expectedTotal = effectiveDays * dailyGoals.count
-        
-        // Actual completed from obligations
+
         let obligations = fetchObligationsForDateRange(from: yearStart, to: effectiveEnd)
-        let dailyGoalIds = Set(dailyGoals.map { $0.id })
-        let dailyObligations = obligations.filter { dailyGoalIds.contains($0.goalId) }
-        let completed = dailyObligations.filter { $0.isCompleted }.count
-        
-        let percent = expectedTotal > 0 ? Double(completed) / Double(expectedTotal) : 0
+        let completed = obligations.filter { $0.isCompleted }.count
+        let total = obligations.count
+
+        let percent = total > 0 ? Double(completed) / Double(total) : 0
         return YearlyStats(completedPercent: min(percent, 1.0), year: targetYear)
-    }
-    
-    private func fetchDailyGoalsActiveInYear(_ year: Int) -> [GoalModel] {
-        let descriptor = FetchDescriptor<GoalModel>(
-            predicate: #Predicate { $0.recurrenceType == "daily" }
-        )
-        let allDailyGoals = (try? modelContext.fetch(descriptor)) ?? []
-        
-        // Filter to goals that were created before the end of the year
-        guard let yearEnd = calendar.date(from: DateComponents(year: year + 1, month: 1, day: 1)) else {
-            return allDailyGoals
-        }
-        
-        return allDailyGoals.filter { $0.createdAt < yearEnd }
     }
 
     // MARK: - Monthly Progress (Obligations Only)
@@ -83,37 +57,12 @@ final class StatsCalculator {
             return MonthProgressStats(completedPercent: 0, totalObligations: 0, completed: 0, missed: 0, pending: 0, monthName: "", year: 0)
         }
         
-        // Check if this is a past month (not current month)
-        let isPastMonth = endOfMonth <= now
-        let monthKey = MonthlyStatsCache.makeKey(from: monthDate)
-        
-        // For past months, try to load from cache first
-        if isPastMonth {
-            if let cached = fetchCachedMonthStats(key: monthKey) {
-                return cached.toMonthProgressStats()
-            }
-        }
-
         let obligations = fetchObligationsForDateRange(from: startOfMonth, to: endOfMonth)
         let effectiveNow = min(now, endOfMonth)
 
-        let daysInMonth = calendar.range(of: .day, in: .month, for: monthDate)?.count ?? 30
-        let dailyGoals = fetchActiveDailyGoals()
-        let dailyGoalIds = Set(dailyGoals.map { $0.id })
-        let expectedDailyTotal = daysInMonth * dailyGoals.count
-
-        let dailyObligations = obligations.filter { dailyGoalIds.contains($0.goalId) }
-        let nonDailyObligations = obligations.filter { !dailyGoalIds.contains($0.goalId) }
-
-        let dailyCompleted = dailyObligations.filter { $0.isCompleted }.count
-        let dailyMissed = dailyObligations.filter { deadlineEngine.isEffectivelyMissed($0, at: effectiveNow) }.count
-
-        let nonDailyCompleted = nonDailyObligations.filter { $0.isCompleted }.count
-        let nonDailyMissed = nonDailyObligations.filter { deadlineEngine.isEffectivelyMissed($0, at: effectiveNow) }.count
-
-        let total = expectedDailyTotal + nonDailyObligations.count
-        let completed = dailyCompleted + nonDailyCompleted
-        let missed = dailyMissed + nonDailyMissed
+        let completed = obligations.filter { $0.isCompleted }.count
+        let missed = obligations.filter { deadlineEngine.isEffectivelyMissed($0, at: effectiveNow) }.count
+        let total = expectedTotalObligations(from: startOfMonth, to: endOfMonth)
         let pending = max(0, total - completed - missed)
 
         let completedPercent = total > 0 ? Double(completed) / Double(total) : 0
@@ -134,39 +83,7 @@ final class StatsCalculator {
             year: year
         )
         
-        // Cache past month stats for instant future access
-        if isPastMonth {
-            cacheMonthStats(stats: stats, key: monthKey)
-        }
-
         return stats
-    }
-    
-    private func fetchCachedMonthStats(key: String) -> MonthlyStatsCache? {
-        let descriptor = FetchDescriptor<MonthlyStatsCache>(
-            predicate: #Predicate { $0.monthKey == key }
-        )
-        return try? modelContext.fetch(descriptor).first
-    }
-    
-    private func cacheMonthStats(stats: MonthProgressStats, key: String) {
-        // Check if already cached
-        if fetchCachedMonthStats(key: key) != nil {
-            return
-        }
-        
-        let cache = MonthlyStatsCache(
-            monthKey: key,
-            completed: stats.completed,
-            missed: stats.missed,
-            pending: stats.pending,
-            totalObligations: stats.totalObligations,
-            completedPercent: stats.completedPercent,
-            monthName: stats.monthName,
-            year: stats.year
-        )
-        modelContext.insert(cache)
-        try? modelContext.save()
     }
 
     // MARK: - Weekly Ledger
@@ -191,7 +108,7 @@ final class StatsCalculator {
             let obligations = fetchObligationsForDateRange(from: startOfWeek, to: effectiveEnd)
 
             let completed = obligations.filter { $0.isCompleted }.count
-            let missed = obligations.filter { deadlineEngine.isEffectivelyMissed($0, at: effectiveEnd) }.count
+            let missed = obligations.filter { $0.isMissed }.count
             let total = obligations.count
 
             // FIXED: Week passed = ALL obligations completed AND zero misses
@@ -214,25 +131,32 @@ final class StatsCalculator {
     }
 
     /// Returns 4 weekly entries for the current month (weeks 1-4).
-    /// Week 1 starts on the first day of the month and spans 7 days.
+    /// Each week is a fixed 7-day block starting from the 1st of the month.
+    /// Week ranges are clamped to month boundaries.
     func monthlyWeekLedger(for date: Date = Date()) -> [WeekLedgerEntry] {
         let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: date)) ?? date
         let daysInMonth = calendar.range(of: .day, in: .month, for: startOfMonth)?.count ?? 30
         let endOfMonth = calendar.date(byAdding: .day, value: daysInMonth, to: startOfMonth) ?? startOfMonth
         let year = calendar.component(.year, from: startOfMonth)
+        let now = Date()
 
         var entries: [WeekLedgerEntry] = []
 
         for index in 0..<4 {
             guard let weekStart = calendar.date(byAdding: .day, value: index * 7, to: startOfMonth) else { continue }
-            guard weekStart < endOfMonth else { continue }
-            let weekEnd = min(calendar.date(byAdding: .day, value: 7, to: weekStart) ?? endOfMonth, endOfMonth)
-            let effectiveEnd = min(weekEnd, date)
+            guard let weekEnd = calendar.date(byAdding: .day, value: 7, to: weekStart) else { continue }
+            
+            // Clamp week range to month boundaries
+            let rangeStart = max(weekStart, startOfMonth)
+            let rangeEnd = min(weekEnd, endOfMonth)
+            
+            guard rangeStart < rangeEnd else { continue }
 
-            let obligations = fetchObligationsForDateRange(from: weekStart, to: weekEnd)
+            let effectiveEnd = min(rangeEnd, now)
+            let obligations = fetchObligationsForDateRange(from: rangeStart, to: rangeEnd)
             let completed = obligations.filter { $0.isCompleted }.count
             let missed = obligations.filter { deadlineEngine.isEffectivelyMissed($0, at: effectiveEnd) }.count
-            let total = obligations.count
+            let total = expectedTotalObligations(from: rangeStart, to: rangeEnd)
 
             let passed = total > 0 && completed == total && missed == 0
 
@@ -257,7 +181,7 @@ final class StatsCalculator {
         let descriptor = FetchDescriptor<ObligationModel>()
         let all = (try? modelContext.fetch(descriptor)) ?? []
         let now = Date()
-        return all.filter { deadlineEngine.isEffectivelyMissed($0, at: now) }.count
+        return all.filter { $0.isMissed }.count
     }
 
     // MARK: - Goal Consistency Table
@@ -265,25 +189,28 @@ final class StatsCalculator {
     /// Returns consistency data for all goals, sorted by lowest consistency first.
     func goalConsistencyTable() -> [GoalConsistencyEntry] {
         let goals = fetchAllGoals()
+        let goalsById = Dictionary(uniqueKeysWithValues: goals.map { ($0.id, $0) })
+        let obligations = fetchObligationsForAllGoals()
         let now = Date()
         var entries: [GoalConsistencyEntry] = []
 
-        for goal in goals {
-            let obligations = fetchObligationsForGoal(goal.id)
-
-            let completed = obligations.filter { $0.isCompleted }.count
-            let missed = obligations.filter { deadlineEngine.isEffectivelyMissed($0, at: now) }.count
+        let grouped = Dictionary(grouping: obligations, by: { $0.goalId })
+        for (goalId, group) in grouped {
+            let completed = group.filter { $0.isCompleted }.count
+            let missed = group.filter { deadlineEngine.isEffectivelyMissed($0, at: now) }.count
             let resolved = completed + missed
 
             let consistency = resolved > 0 ? Double(completed) / Double(resolved) : 0
+            let earliest = group.map(\.scheduledAt).min() ?? now
+            let goal = goalsById[goalId]
 
             entries.append(GoalConsistencyEntry(
-                goalId: goal.id,
-                title: goal.title,
-                activeSince: goal.createdAt,
+                goalId: goalId,
+                title: goal?.title ?? "Unknown Goal",
+                activeSince: earliest,
                 consistency: min(consistency, 1.0),
                 missedLifetime: missed,
-                isActive: goal.isActive
+                isActive: goal?.isActive ?? false
             ))
         }
 
@@ -330,7 +257,7 @@ final class StatsCalculator {
                 let obligations = fetchObligationsForDateRange(from: weekStart, to: min(weekEnd, effectiveEnd))
 
                 let completed = obligations.filter { $0.isCompleted }.count
-                let missed = obligations.filter { deadlineEngine.isEffectivelyMissed($0, at: effectiveEnd) }.count
+                let missed = obligations.filter { $0.isMissed }.count
                 let total = obligations.count
 
                 totalMissedInYear += missed
@@ -362,20 +289,6 @@ final class StatsCalculator {
         return (try? modelContext.fetch(descriptor)) ?? []
     }
 
-    private func fetchActiveGoals() -> [GoalModel] {
-        let descriptor = FetchDescriptor<GoalModel>(
-            predicate: #Predicate { $0.status == "active" }
-        )
-        return (try? modelContext.fetch(descriptor)) ?? []
-    }
-
-    private func fetchActiveDailyGoals() -> [GoalModel] {
-        let descriptor = FetchDescriptor<GoalModel>(
-            predicate: #Predicate { $0.status == "active" && $0.recurrenceType == "daily" }
-        )
-        return (try? modelContext.fetch(descriptor)) ?? []
-    }
-
     private func fetchObligationsForDateRange(from startDate: Date, to endDate: Date) -> [ObligationModel] {
         let descriptor = FetchDescriptor<ObligationModel>()
         let all = (try? modelContext.fetch(descriptor)) ?? []
@@ -385,11 +298,144 @@ final class StatsCalculator {
         }
     }
 
-    private func fetchObligationsForGoal(_ goalId: UUID) -> [ObligationModel] {
+    private func fetchObligationsForAllGoals() -> [ObligationModel] {
         let descriptor = FetchDescriptor<ObligationModel>()
-        let all = (try? modelContext.fetch(descriptor)) ?? []
+        return (try? modelContext.fetch(descriptor)) ?? []
+    }
 
-        return all.filter { $0.goalId == goalId }
+    private func fetchActiveGoals() -> [GoalModel] {
+        fetchAllGoals().filter { normalizedStatus($0.status) == "active" }
+    }
+
+    private func expectedTotalObligations(from startDate: Date, to endDate: Date) -> Int {
+        let goals = fetchActiveGoals()
+        let start = calendar.startOfDay(for: startDate)
+        let end = calendar.startOfDay(for: endDate)
+        guard start < end else { return 0 }
+
+        return goals.reduce(0) { total, goal in
+            total + expectedOccurrences(for: goal, from: start, to: end)
+        }
+    }
+
+    private func expectedOccurrences(for goal: GoalModel, from start: Date, to end: Date) -> Int {
+        let rangeStart = calendar.startOfDay(for: start)
+        guard rangeStart < end else { return 0 }
+
+        let recurrence = normalizedRecurrence(goal.recurrenceType)
+
+        switch recurrence {
+        case "none":
+            let scheduled = applyScheduledTime(goal.scheduledTime, to: goal.createdAt)
+            return scheduled >= rangeStart && scheduled < end ? 1 : 0
+
+        case "daily":
+            let days = calendar.dateComponents([.day], from: rangeStart, to: end).day ?? 0
+            return max(0, days)
+
+        case "weekly":
+            let selectedWeekdays = normalizedWeekdays(goal.weekdays)
+            var count = 0
+            var date = rangeStart
+            while date < end {
+                if selectedWeekdays.contains(isoWeekday(from: date)) {
+                    count += 1
+                }
+                guard let next = calendar.date(byAdding: .day, value: 1, to: date) else { break }
+                date = next
+            }
+            return count
+
+        case "monthly":
+            let dayOfMonth = goal.monthlyDayOfMonth ?? calendar.component(.day, from: goal.createdAt)
+            var count = 0
+            var monthCursor = calendar.date(from: calendar.dateComponents([.year, .month], from: rangeStart)) ?? rangeStart
+            while monthCursor < end {
+                var components = calendar.dateComponents([.year, .month], from: monthCursor)
+                components.day = min(dayOfMonth, daysInMonth(monthCursor))
+                if let date = calendar.date(from: components), date >= rangeStart && date < end {
+                    count += 1
+                }
+                guard let next = calendar.date(byAdding: .month, value: 1, to: monthCursor) else { break }
+                monthCursor = next
+            }
+            return count
+
+        case "custom":
+            guard let intervalDays = goal.customIntervalDays, intervalDays > 0 else { return 0 }
+            var count = 0
+            var date = calendar.startOfDay(for: goal.createdAt)
+            while date < end {
+                if date >= rangeStart {
+                    count += 1
+                }
+                guard let next = calendar.date(byAdding: .day, value: intervalDays, to: date) else { break }
+                date = next
+            }
+            return count
+
+        default:
+            return 0
+        }
+    }
+
+    private func applyScheduledTime(_ time: Date?, to date: Date) -> Date {
+        guard let time = time else { return date }
+        let timeComponents = calendar.dateComponents([.hour, .minute], from: time)
+        var dateComponents = calendar.dateComponents([.year, .month, .day], from: date)
+        dateComponents.hour = timeComponents.hour
+        dateComponents.minute = timeComponents.minute
+        return calendar.date(from: dateComponents) ?? date
+    }
+
+    private func isoWeekday(from date: Date) -> Int {
+        let weekday = calendar.component(.weekday, from: date)
+        return weekday == 1 ? 7 : weekday - 1
+    }
+
+    private func daysInMonth(_ date: Date) -> Int {
+        calendar.range(of: .day, in: .month, for: date)?.count ?? 30
+    }
+
+    private func normalizedStatus(_ status: String) -> String {
+        status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func normalizedRecurrence(_ recurrence: String) -> String {
+        let trimmed = recurrence.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        let collapsed = lower
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: " ", with: "")
+
+        switch collapsed {
+        case "", "daily", "day", "everyday":
+            return "daily"
+        case "custom":
+            return "custom"
+        case "none", "oneoff", "oneoffgoal", "oneofftask", "once", "single":
+            return "none"
+        default:
+            if collapsed.hasPrefix("weekly") || collapsed == "week" {
+                return "weekly"
+            }
+            if collapsed.hasPrefix("monthly") || collapsed == "month" {
+                return "monthly"
+            }
+            if collapsed.hasPrefix("daily") || collapsed == "day" {
+                return "daily"
+            }
+            return lower
+        }
+    }
+
+    private func normalizedWeekdays(_ weekdays: [Int]) -> [Int] {
+        guard !weekdays.isEmpty else { return [1, 2, 3, 4, 5, 6, 7] }
+        if weekdays.contains(0) {
+            return weekdays.map { $0 == 0 ? 7 : $0 }
+        }
+        return weekdays
     }
 }
 

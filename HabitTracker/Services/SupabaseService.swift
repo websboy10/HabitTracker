@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Security
 
 // MARK: - Supabase Response Models
 
@@ -53,10 +54,58 @@ struct ProfileDTO: Codable {
     var updatedAt: String?
     
     enum CodingKeys: String, CodingKey {
-        case id, email, name, title, age
+        case id, email, name, nameCapitalized = "Name", title, age
         case userGoal = "user_goal"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+    }
+
+    init(
+        id: String,
+        email: String? = nil,
+        name: String? = nil,
+        title: String? = nil,
+        age: Int? = nil,
+        userGoal: String? = nil,
+        createdAt: String? = nil,
+        updatedAt: String? = nil
+    ) {
+        self.id = id
+        self.email = email
+        self.name = name
+        self.title = title
+        self.age = age
+        self.userGoal = userGoal
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        email = try container.decodeIfPresent(String.self, forKey: .email)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        age = try container.decodeIfPresent(Int.self, forKey: .age)
+        userGoal = try container.decodeIfPresent(String.self, forKey: .userGoal)
+        createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
+        updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
+        if let capitalized = try container.decodeIfPresent(String.self, forKey: .nameCapitalized) {
+            name = capitalized
+        } else {
+            name = try container.decodeIfPresent(String.self, forKey: .name)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(email, forKey: .email)
+        try container.encodeIfPresent(name, forKey: .nameCapitalized)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encodeIfPresent(age, forKey: .age)
+        try container.encodeIfPresent(userGoal, forKey: .userGoal)
+        try container.encodeIfPresent(createdAt, forKey: .createdAt)
+        try container.encodeIfPresent(updatedAt, forKey: .updatedAt)
     }
 }
 
@@ -194,6 +243,49 @@ struct ObligationDTO: Codable {
     }
 }
 
+/// Weekly note DTO matching weekly_notes table
+struct WeeklyNoteDTO: Codable {
+    var id: String?
+    let userId: String
+    let year: Int
+    let month: Int
+    let weekIndex: Int
+    var text: String
+    var createdAt: String?
+    var updatedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId = "user_id"
+        case year
+        case month
+        case weekIndex = "week_index"
+        case text = "note"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+struct WeeklyNoteUpsertDTO: Encodable {
+    let userId: String
+    let year: Int
+    let month: Int
+    let weekIndex: Int
+    let text: String
+    let createdAt: String?
+    let updatedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case year
+        case month
+        case weekIndex = "week_index"
+        case text = "note"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
 /// Task DTO matching tasks table
 struct TaskDTO: Codable {
     var id: String?
@@ -312,11 +404,33 @@ final class SupabaseService: ObservableObject {
     // MARK: - Session Management
     
     private func loadSession() {
-        guard let data = UserDefaults.standard.data(forKey: "supabase_session"),
-              let session = try? decoder.decode(SupabaseSession.self, from: data) else {
+        // 1. Try to load from Keychain (Secure)
+        if let data = KeychainHelper.standard.read(service: "supabase-session", account: "current-user"),
+           let session = try? decoder.decode(SupabaseSession.self, from: data) {
+            print("[SupabaseService] 🔐 Session loaded from Keychain")
+            processLoadedSession(session)
             return
         }
         
+        // 2. Fallback: Try to load from UserDefaults (Legacy)
+        if let data = UserDefaults.standard.data(forKey: "supabase_session"),
+           let session = try? decoder.decode(SupabaseSession.self, from: data) {
+            print("[SupabaseService] ⚠️ Legacy session found. Migrating to Keychain...")
+            
+            // 3. Migrate to Keychain
+            if KeychainHelper.standard.save(data, service: "supabase-session", account: "current-user") {
+                // Remove from UserDefaults only after successful save
+                UserDefaults.standard.removeObject(forKey: "supabase_session")
+                UserDefaults.standard.removeObject(forKey: "supabase_access_token")
+                print("[SupabaseService] ✅ Migration successful.")
+            }
+            
+            processLoadedSession(session)
+            return
+        }
+    }
+    
+    private func processLoadedSession(_ session: SupabaseSession) {
         // Check if token is expired
         if let expiresAt = session.expiresAt {
             let expirationDate = Date(timeIntervalSince1970: TimeInterval(expiresAt))
@@ -356,27 +470,38 @@ final class SupabaseService: ObservableObject {
         }
         
         if let data = try? encoder.encode(session) {
-            UserDefaults.standard.set(data, forKey: "supabase_session")
+            // Save to Keychain
+            _ = KeychainHelper.standard.save(data, service: "supabase-session", account: "current-user")
         }
         
-        // Also store for backward compatibility
-        UserDefaults.standard.set(session.accessToken, forKey: "supabase_access_token")
+        // Legacy cleanup (just in case they logged in fresh)
+        UserDefaults.standard.removeObject(forKey: "supabase_session")
+        UserDefaults.standard.removeObject(forKey: "supabase_access_token")
+        
+        // We still keep this flag for simple checks in other parts of the app, 
+        // as it contains no sensitive data.
         UserDefaults.standard.set(true, forKey: "isAuthenticated")
     }
     
-    func clearSession() {
+    func clearSession(preserveLocalState: Bool = false) {
         withAnimation(.easeInOut(duration: 0.2)) {
             currentSession = nil
             isAuthenticated = false
             currentUserId = nil
         }
         
+        // Clear from Keychain
+        KeychainHelper.standard.delete(service: "supabase-session", account: "current-user")
+        
+        // Clear Legacy
         UserDefaults.standard.removeObject(forKey: "supabase_session")
         UserDefaults.standard.removeObject(forKey: "supabase_access_token")
         
-        // Clear all app state
-        UserDefaults.standard.removeObject(forKey: "hasCompletedOnboarding")
-        UserDefaults.standard.removeObject(forKey: "storageMode")
+        if !preserveLocalState {
+            // Clear all app state
+            UserDefaults.standard.removeObject(forKey: "hasCompletedOnboarding")
+            UserDefaults.standard.removeObject(forKey: "storageMode")
+        }
         UserDefaults.standard.set(false, forKey: "isAuthenticated")
     }
     
@@ -576,10 +701,10 @@ final class SupabaseService: ObservableObject {
     }
     
     /// Sign out
-    func signOut() async {
+    func signOut(preserveLocalState: Bool = false) async {
         guard let token = currentSession?.accessToken,
               let url = URL(string: "\(supabaseURL)/auth/v1/logout") else {
-            clearSession()
+            clearSession(preserveLocalState: preserveLocalState)
             return
         }
         
@@ -590,7 +715,7 @@ final class SupabaseService: ObservableObject {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         
         _ = try? await URLSession.shared.data(for: request)
-        clearSession()
+        clearSession(preserveLocalState: preserveLocalState)
     }
     
     /// Delete account and all associated data
@@ -606,7 +731,7 @@ final class SupabaseService: ObservableObject {
         // If RLS allows, this will work. If not, we might need a backend function.
         // Assuming RLS allows users to delete rows where user_id = auth.uid()
         
-        let tables = ["completions", "obligations", "goals", "categories", "user_settings", "profiles"]
+        let tables = ["completions", "obligations", "weekly_notes", "goals", "categories", "user_settings", "profiles"]
         
         for table in tables {
             print("[SupabaseService] 🗑️ Deleting from \(table)...")
@@ -1038,16 +1163,12 @@ final class SupabaseService: ObservableObject {
         return updated
     }
     
-    /// Soft delete a goal
+    /// Delete a goal
     func deleteGoal(id: String) async throws {
         guard isCloudModeEnabled else { return }
-        let deletedAt = iso8601Formatter.string(from: Date())
-        let body = try encoder.encode(["deleted_at": deletedAt])
-        
         _ = try await makeRequest(
             path: "goals",
-            method: "PATCH",
-            body: body,
+            method: "DELETE",
             queryParams: [("id", "eq.\(id)")]
         )
     }
@@ -1118,6 +1239,74 @@ final class SupabaseService: ObservableObject {
             queryParams: [("id", "eq.\(id)")]
         )
     }
+
+    // MARK: - Obligation Operations
+
+    /// Get obligations for a date range
+    func getObligations(from startDate: Date, to endDate: Date) async throws -> [ObligationDTO] {
+        guard isCloudModeEnabled else { return [] }
+        guard let userId = currentUserId else { return [] }
+
+        let startString = iso8601Formatter.string(from: startDate)
+        let endString = iso8601Formatter.string(from: endDate)
+
+        let data = try await makeRequest(
+            path: "obligations",
+            method: "GET",
+            queryParams: [
+                ("user_id", "eq.\(userId)"),
+                ("scheduled_at", "gte.\(startString)"),
+                ("scheduled_at", "lt.\(endString)"),
+                ("select", "*"),
+                ("order", "scheduled_at.asc")
+            ]
+        )
+
+        return try decoder.decode([ObligationDTO].self, from: data)
+    }
+
+    /// Upsert multiple obligations
+    func upsertObligations(_ obligations: [ObligationDTO]) async throws -> [ObligationDTO] {
+        guard isCloudModeEnabled else { return obligations }
+        guard !obligations.isEmpty else { return [] }
+
+        let body = try encoder.encode(obligations)
+
+        var request = URLRequest(url: URL(string: "\(supabaseURL)/rest/v1/obligations?on_conflict=id")!)
+        request.httpMethod = "POST"
+        authHeaders.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
+        request.setValue("return=representation,resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
+        request.httpBody = body
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 else {
+            throw SupabaseError(message: "Failed to upsert obligations", error: nil, errorDescription: nil, statusCode: nil)
+        }
+
+        return try decoder.decode([ObligationDTO].self, from: data)
+    }
+
+    /// Delete an obligation
+    func deleteObligation(id: String) async throws {
+        guard isCloudModeEnabled else { return }
+        _ = try await makeRequest(
+            path: "obligations",
+            method: "DELETE",
+            queryParams: [("id", "eq.\(id)")]
+        )
+    }
+
+    /// Delete obligations for a goal
+    func deleteObligations(goalId: String) async throws {
+        guard isCloudModeEnabled else { return }
+        _ = try await makeRequest(
+            path: "obligations",
+            method: "DELETE",
+            queryParams: [("goal_id", "eq.\(goalId)")]
+        )
+    }
     
     // MARK: - Bulk Operations
     
@@ -1165,6 +1354,53 @@ final class SupabaseService: ObservableObject {
         }
         
         return try decoder.decode([CompletionDTO].self, from: data)
+    }
+
+    // MARK: - Weekly Notes Operations
+
+    /// Get weekly notes for a specific month
+    func getWeeklyNotes(year: Int, month: Int) async throws -> [WeeklyNoteDTO] {
+        guard isCloudModeEnabled else { return [] }
+        guard let userId = currentUserId else { return [] }
+
+        let data = try await makeRequest(
+            path: "weekly_notes",
+            method: "GET",
+            queryParams: [
+                ("user_id", "eq.\(userId)"),
+                ("year", "eq.\(year)"),
+                ("month", "eq.\(month)"),
+                ("select", "*"),
+                ("order", "week_index.asc")
+            ]
+        )
+
+        return try decoder.decode([WeeklyNoteDTO].self, from: data)
+    }
+
+    /// Upsert multiple weekly notes
+    func upsertWeeklyNotes(_ notes: [WeeklyNoteUpsertDTO]) async throws -> [WeeklyNoteDTO] {
+        guard isCloudModeEnabled else { return [] }
+        guard !notes.isEmpty else { return [] }
+
+        let body = try encoder.encode(notes)
+
+        var request = URLRequest(
+            url: URL(string: "\(supabaseURL)/rest/v1/weekly_notes?on_conflict=user_id,year,month,week_index")!
+        )
+        request.httpMethod = "POST"
+        authHeaders.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
+        request.setValue("return=representation,resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
+        request.httpBody = body
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 else {
+            throw SupabaseError(message: "Failed to upsert weekly notes", error: nil, errorDescription: nil, statusCode: nil)
+        }
+
+        return try decoder.decode([WeeklyNoteDTO].self, from: data)
     }
     
     // MARK: - Account Deletion
@@ -1221,7 +1457,7 @@ final class SupabaseService: ObservableObject {
         }
         
         // Delete in order respecting foreign key constraints:
-        // completions -> obligations -> tasks -> goals -> categories
+        // completions -> obligations -> weekly_notes -> goals -> categories
         
         // 1. Delete all completions
         var request = URLRequest(url: URL(string: "\(supabaseURL)/rest/v1/completions?user_id=eq.\(userId)")!)
@@ -1234,13 +1470,19 @@ final class SupabaseService: ObservableObject {
         request.httpMethod = "DELETE"
         authHeaders.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
         let _ = try await URLSession.shared.data(for: request)
-        
-        // 3. Delete all goals
+
+        // 3. Delete all weekly notes
+        request = URLRequest(url: URL(string: "\(supabaseURL)/rest/v1/weekly_notes?user_id=eq.\(userId)")!)
+        request.httpMethod = "DELETE"
+        authHeaders.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
+        let _ = try await URLSession.shared.data(for: request)
+
+        // 4. Delete all goals
         request = URLRequest(url: URL(string: "\(supabaseURL)/rest/v1/goals?user_id=eq.\(userId)")!)
         request.httpMethod = "DELETE"
         authHeaders.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
         let _ = try await URLSession.shared.data(for: request)
-        
+
         // 5. Delete all categories (will be re-seeded on next app launch)
         request = URLRequest(url: URL(string: "\(supabaseURL)/rest/v1/categories?user_id=eq.\(userId)")!)
         request.httpMethod = "DELETE"
@@ -1248,5 +1490,69 @@ final class SupabaseService: ObservableObject {
         let _ = try await URLSession.shared.data(for: request)
         
         print("✅ User data reset in Supabase (profile and settings preserved)")
+    }
+}
+
+// MARK: - Keychain Helper
+
+private struct KeychainHelper {
+    static let standard = KeychainHelper()
+    
+    private init() {}
+    
+    func save(_ data: Data, service: String, account: String) -> Bool {
+        let query = [
+            kSecValueData: data,
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account
+        ] as [CFString: Any]
+        
+        // Add
+        var status = SecItemAdd(query as CFDictionary, nil)
+        
+        if status == errSecDuplicateItem {
+            // Item already exists, update it
+            let query = [
+                kSecClass: kSecClassGenericPassword,
+                kSecAttrService: service,
+                kSecAttrAccount: account
+            ] as [CFString: Any]
+            
+            let attributesToUpdate = [kSecValueData: data] as [CFString: Any]
+            
+            status = SecItemUpdate(query as CFDictionary, attributesToUpdate as CFDictionary)
+        }
+        
+        return status == errSecSuccess
+    }
+    
+    func read(service: String, account: String) -> Data? {
+        let query = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne
+        ] as [CFString: Any]
+        
+        var dataTypeRef: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &dataTypeRef)
+        
+        if status == errSecSuccess {
+            return dataTypeRef as? Data
+        }
+        
+        return nil
+    }
+    
+    func delete(service: String, account: String) {
+        let query = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account
+        ] as [CFString: Any]
+        
+        SecItemDelete(query as CFDictionary)
     }
 }

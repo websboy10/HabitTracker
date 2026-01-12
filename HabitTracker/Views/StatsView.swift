@@ -10,9 +10,7 @@ struct StatsView: View {
     var showsCustomTabBar: Bool = true
 
     @State private var statsCalculator: StatsCalculator?
-    @State private var selectedWeek: WeekLedgerEntry?
     @State private var selectedMonth: Date = Date()
-    @State private var showMonthPicker: Bool = false
     
     // Observe model changes to trigger re-renders when data is deleted/added
     @Query private var obligations: [ObligationModel]
@@ -33,19 +31,15 @@ struct StatsView: View {
                     monthProgressSection
                         .padding(.bottom, AppSpacing.xl)
 
-                    // SECTION 3: Weekly Ledger
-                    weeklyLedgerSection
-                        .padding(.bottom, AppSpacing.xl)
-
-                    // SECTION 4: Lifetime Missed
+                    // SECTION 3: Lifetime Missed
                     lifetimeMissedSection
                         .padding(.bottom, AppSpacing.xl)
 
-                    // SECTION 5: Goal Consistency Table
+                    // SECTION 4: Goal Consistency Table
                     goalConsistencySection
                         .padding(.bottom, AppSpacing.xl)
 
-                    // SECTION 6: Archive
+                    // SECTION 5: Archive
                     archiveSection
                         .padding(.bottom, 120)
                 }
@@ -61,15 +55,11 @@ struct StatsView: View {
             }
         }
         .onAppear {
-            // Ensure obligations exist for all displayed periods (Row-Based Truth)
-            let scheduler = ObligationScheduler(modelContext: modelContext)
-            scheduler.ensureRolling12MonthObligations()
+            // Processing pending obligations to ensure stats are accurate
+            DeadlineProcessor.shared.processPendingObligations(modelContext: modelContext)
 
             // Initialize stats calculator
             statsCalculator = StatsCalculator(modelContext: modelContext)
-        }
-        .sheet(item: $selectedWeek) { week in
-            WeekDetailSheet(week: week)
         }
     }
 
@@ -271,64 +261,7 @@ struct StatsView: View {
         }
     }
 
-    // MARK: - Section 3: Weekly Ledger
-
-    private var weeklyLedgerSection: some View {
-        let weeks = statsCalculator?.monthlyWeekLedger(for: selectedMonth) ?? []
-
-        return VStack(alignment: .leading, spacing: AppSpacing.md) {
-            sectionHeader("WEEKLY LEDGER")
-
-            GlassCard {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-                    ForEach(weeks) { week in
-                        Button {
-                            selectedWeek = week
-                        } label: {
-                            weekCell(week: week, hasNote: hasNote(for: week))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(AppSpacing.lg)
-            }
-        }
-    }
-
-    private func weekCell(week: WeekLedgerEntry, hasNote: Bool) -> some View {
-        VStack(spacing: 4) {
-            ZStack(alignment: .topTrailing) {
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(week.passed ? AppColors.primary.opacity(0.3) : Color.white.opacity(0.05))
-                    .frame(height: 32)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .stroke(
-                                week.passed ? AppColors.primary.opacity(0.5) : Color.white.opacity(0.1),
-                                lineWidth: 1
-                            )
-                    )
-
-                if hasNote {
-                    Circle()
-                        .fill(AppColors.primary.opacity(0.7))
-                        .frame(width: 6, height: 6)
-                        .padding(4)
-                }
-            }
-
-            Text("\(week.weekNumber)")
-                .font(.system(size: 8, weight: .medium, design: .monospaced))
-                .foregroundColor(AppColors.textMuted)
-        }
-    }
-
-    private func hasNote(for week: WeekLedgerEntry) -> Bool {
-        // WeeklyNoteModel not available - stubbed out
-        return false
-    }
-
-    // MARK: - Section 4: Lifetime Missed
+    // MARK: - Section 3: Lifetime Missed
 
     private var lifetimeMissedSection: some View {
         let missed = statsCalculator?.lifetimeMissed() ?? 0
@@ -517,155 +450,6 @@ struct StatsView: View {
                 .padding(.bottom, AppSpacing.md)
                 .background(AppColors.backgroundDark)
         }
-    }
-}
-
-// MARK: - Week Detail Sheet
-
-struct WeekDetailSheet: View {
-    let week: WeekLedgerEntry
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
-    @State private var noteText: String = ""
-    // @State private var noteModel: WeeklyNoteModel? // Not available in target
-
-    var body: some View {
-        ZStack {
-            AppColors.backgroundDark
-                .ignoresSafeArea()
-
-            VStack(spacing: AppSpacing.xl) {
-                HStack {
-                    Spacer()
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(AppColors.textSecondary)
-                            .frame(width: 32, height: 32)
-                            .background(Circle().fill(Color.white.opacity(0.1)))
-                    }
-                }
-                .padding(.horizontal, AppSpacing.screenHorizontal)
-                .padding(.top, AppSpacing.lg)
-
-                VStack(spacing: AppSpacing.sm) {
-                    Text("WEEK \(week.weekNumber)")
-                        .font(.system(size: 32, weight: .bold, design: .monospaced))
-                        .foregroundColor(AppColors.textPrimary)
-
-                    Text(formatWeekDate(week.startDate))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(AppColors.textMuted)
-                        .textCase(.uppercase)
-                        .tracking(1)
-                }
-
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(week.passed ? AppColors.primary.opacity(0.2) : Color.white.opacity(0.05))
-                    .frame(width: 120, height: 120)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(
-                                week.passed ? AppColors.primary.opacity(0.4) : Color.white.opacity(0.1),
-                                lineWidth: 2
-                            )
-                    )
-                    .overlay(
-                        Text(week.passed ? "PASSED" : "FAILED")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(week.passed ? AppColors.primary : AppColors.textMuted)
-                    )
-
-                VStack(spacing: AppSpacing.lg) {
-                    detailRow(label: "OBLIGATIONS", value: "\(week.totalObligations)")
-                    detailRow(label: "COMPLETED", value: "\(week.completed)")
-                    detailRow(label: "MISSED", value: "\(week.missed)")
-                }
-                .padding(.horizontal, AppSpacing.screenHorizontal)
-
-                VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                    Text("NOTE")
-                        .font(AppTypography.caption)
-                        .textCase(.uppercase)
-                        .tracking(1.5)
-                        .foregroundColor(AppColors.textSecondary)
-
-                    GlassCard {
-                        ZStack(alignment: .topLeading) {
-                            TextEditor(text: $noteText)
-                                .font(AppTypography.body)
-                                .foregroundColor(AppColors.textPrimary)
-                                .scrollContentBackground(.hidden)
-                                .frame(minHeight: 140)
-
-                            if noteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Text("Write a private note for this week...")
-                                    .font(AppTypography.bodySmall)
-                                    .foregroundColor(AppColors.textMuted)
-                                    .padding(.top, 8)
-                                    .padding(.leading, 6)
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal, AppSpacing.screenHorizontal)
-
-                Spacer()
-            }
-        }
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
-        .onAppear {
-            loadNote()
-        }
-        .onChange(of: noteText) { _, newValue in
-            persistNote(text: newValue)
-        }
-    }
-
-    private func detailRow(label: String, value: String) -> some View {
-        HStack {
-            Text(label)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(AppColors.textSecondary)
-                .textCase(.uppercase)
-                .tracking(1)
-
-            Spacer()
-
-            Text(value)
-                .font(.system(size: 18, weight: .bold, design: .monospaced))
-                .foregroundColor(AppColors.textPrimary)
-        }
-        .padding(.vertical, AppSpacing.sm)
-        .padding(.horizontal, AppSpacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.03))
-        )
-    }
-
-    private func formatWeekDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d, yyyy"
-        return formatter.string(from: date)
-    }
-
-    private func noteKey() -> String {
-        let calendar = Calendar.current
-        let month = calendar.component(.month, from: week.startDate)
-        return "\(week.year)-\(month)-\(week.weekNumber)"
-    }
-
-    private func loadNote() {
-        // WeeklyNoteModel not available - stubbed out
-        noteText = ""
-    }
-
-    private func persistNote(text: String) {
-        // WeeklyNoteModel not available - stubbed out
     }
 }
 
