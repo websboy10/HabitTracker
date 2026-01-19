@@ -16,9 +16,8 @@ final class WeeklyNoteService {
     private init() {}
 
     func preloadNotes(year: Int, month: Int, modelContext: ModelContext) async {
-        guard StorageMode.current == .cloud else { return }
         await supabase.awaitSessionInitialization()
-        guard let userId = supabase.currentUserId else { return }
+        guard supabase.isAuthenticated, let userId = supabase.currentUserId else { return }
 
         do {
             let remoteNotes = try await supabase.getWeeklyNotes(year: year, month: month)
@@ -76,7 +75,7 @@ final class WeeklyNoteService {
             return local
         }
 
-        guard StorageMode.current == .cloud else { return nil }
+        guard supabase.isAuthenticated else { return nil }
         await preloadNotes(year: year, month: month, modelContext: modelContext)
         return fetchLocalNote(year: year, month: month, weekIndex: weekIndex, modelContext: modelContext)
     }
@@ -95,9 +94,8 @@ final class WeeklyNoteService {
 
         try? modelContext.save()
 
-        guard StorageMode.current == .cloud else { return }
         await supabase.awaitSessionInitialization()
-        guard let userId = supabase.currentUserId else { return }
+        guard supabase.isAuthenticated, let userId = supabase.currentUserId else { return }
 
         do {
             let dto = makeWeeklyNoteUpsertDTO(from: local, userId: userId)

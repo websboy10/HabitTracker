@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
+import UserNotifications
 
 /// Settings view following HTML reference design
 struct SettingsView: View {
@@ -10,8 +11,31 @@ struct SettingsView: View {
     @State private var settings = SettingsStore.shared
     var showsCustomTabBar: Bool = true
     
+    // Calendar service for permissions (requires adding CalendarService.swift to Xcode project)
+    // @StateObject private var calendarService = CalendarService.shared
+    
     // Time picker state
     @State private var showingTimePicker = false
+    @State private var showingNotificationSettings = false
+    @State private var notificationsEnabled = NotificationEngine.shared.globallyEnabled
+    @State private var defaultNotificationTime = NotificationEngine.shared.defaultNotificationTime
+    @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
+
+    // Report notification toggles
+    @State private var dailyReportEnabled = ReportNotificationStore.dailyReportEnabled
+    @State private var weeklyReportEnabled = ReportNotificationStore.weeklyReportEnabled
+    @State private var monthlyReportEnabled = ReportNotificationStore.monthlyReportEnabled
+
+    // Time picker sheets
+    @State private var showingDefaultTimePicker = false
+    @State private var showingDailyTimePicker = false
+    @State private var showingWeeklyTimePicker = false
+    @State private var showingMonthlyTimePicker = false
+
+    // Report notification times
+    @State private var dailyReportTime: Date = ReportNotificationStore.dailyReportTime
+    @State private var weeklyReportTime: Date = ReportNotificationStore.weeklyReportTime
+    @State private var monthlyReportTime: Date = ReportNotificationStore.monthlyReportTime
     
     // Data management state
     @State private var showingResetConfirmation = false
@@ -29,42 +53,46 @@ struct SettingsView: View {
         ZStack {
             // Background
             AppMaterials.moodGradient
-            
-            // Scrollable content
-            ScrollView(.vertical, showsIndicators: false) {
+
+            // Scrollable content with automatic scroll reset
+            ResetScrollView(viewName: "SettingsView", showsIndicators: false) {
                 VStack(spacing: 0) {
                     // Header
                     header
                         .padding(.bottom, AppSpacing.lg)
-                    
+
                     // Account Section
                     accountSection
                         .padding(.bottom, AppSpacing.lg)
-                    
+
                     // Theme Section
                     themeSection
                         .padding(.bottom, AppSpacing.lg)
-                    
+
                     // Display Options
                     displayOptionsSection
                         .padding(.bottom, AppSpacing.lg)
-                    
+
                     // Calculations
                     calculationsSection
                         .padding(.bottom, AppSpacing.lg)
-                    
+
+                    // Permissions
+                    permissionsSection
+                        .padding(.bottom, AppSpacing.lg)
+
                     // Day Boundary
                     dayBoundarySection
                         .padding(.bottom, AppSpacing.lg)
-                    
+
                     // Data & Backup
                     dataBackupSection
                         .padding(.bottom, AppSpacing.lg)
-                    
+
                     // About
                     aboutSection
                         .padding(.bottom, AppSpacing.lg)
-                    
+
                     // Danger Zone (Delete Account)
                     dangerZoneSection
                         .padding(.bottom, 120)
@@ -72,7 +100,7 @@ struct SettingsView: View {
                 .padding(.horizontal, AppSpacing.screenHorizontal)
                 .padding(.top, AppSpacing.xl)
             }
-            
+
             // Fixed bottom elements
             if showsCustomTabBar {
                 VStack {
@@ -81,8 +109,17 @@ struct SettingsView: View {
                 }
             }
         }
+        .onAppear {
+            NavigationLogger.shared.logViewAppear("SettingsView")
+        }
+        .onDisappear {
+            NavigationLogger.shared.logViewDisappear("SettingsView")
+        }
         .sheet(isPresented: $showingTimePicker) {
             timePickerSheet
+        }
+        .sheet(isPresented: $showingNotificationSettings) {
+            notificationSettingsSheet
         }
         .sheet(isPresented: $showingExportSheet) {
             if let url = exportURL {
@@ -128,6 +165,9 @@ struct SettingsView: View {
             )
             .transition(.opacity.combined(with: .scale(scale: 0.98)))
             .animation(.easeInOut(duration: 0.2), value: deleteAccountStep)
+        }
+        .task {
+            await refreshNotificationStatus()
         }
     }
     
@@ -330,6 +370,101 @@ struct SettingsView: View {
         }
     }
     
+    // MARK: - Permissions Section
+
+    private var permissionsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SettingsSectionHeader(title: "Permissions")
+
+            GlassCard {
+                VStack(spacing: 0) {
+                    // Notifications settings row
+                    Button {
+                        showingNotificationSettings = true
+                    } label: {
+                        HStack(spacing: 16) {
+                            ZStack {
+                                Circle()
+                                    .fill(notificationsEnabled ? AppColors.primary.opacity(0.2) : Color.white.opacity(0.05))
+                                    .frame(width: 40, height: 40)
+
+                                Image(systemName: "bell")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(notificationsEnabled ? AppColors.primary : AppColors.textMuted)
+                            }
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Notifications")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(AppColors.textPrimary)
+
+                                Text(notificationStatusText)
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundColor(AppColors.textSecondary)
+                            }
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(AppColors.textMuted)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .padding(16)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func refreshNotificationStatus() async {
+        let storedEnabled = NotificationEngine.shared.globallyEnabled
+        defaultNotificationTime = NotificationEngine.shared.defaultNotificationTime
+        notificationAuthorizationStatus = await NotificationEngine.shared.authorizationStatus()
+        notificationsEnabled = storedEnabled && notificationAuthorizationStatus == .authorized
+    }
+
+    @MainActor
+    private func handleNotificationToggleChange(_ isEnabled: Bool) async {
+        if isEnabled {
+            let granted = await NotificationEngine.shared.requestAuthorizationFromSettings()
+            notificationAuthorizationStatus = await NotificationEngine.shared.authorizationStatus()
+            if !granted {
+                notificationsEnabled = false
+            }
+        }
+        await applyNotificationSettings()
+    }
+
+    @MainActor
+    private func applyNotificationSettings() async {
+        await NotificationEngine.shared.applyGlobalSettings(
+            enabled: notificationsEnabled,
+            defaultTime: defaultNotificationTime,
+            modelContext: modelContext
+        )
+        await refreshNotificationStatus()
+    }
+
+    private var notificationStatusText: String {
+        if notificationAuthorizationStatus == .denied {
+            return "Disabled in system settings"
+        }
+        if !notificationsEnabled {
+            return "Notifications turned off"
+        }
+        return "Default \(notificationTimeFormatted)"
+    }
+
+    private var notificationTimeFormatted: String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: defaultNotificationTime)
+    }
+    
     // MARK: - Day Boundary Section
     
     private var dayBoundarySection: some View {
@@ -404,13 +539,464 @@ struct SettingsView: View {
         }
         .presentationDetents([.height(300)])
     }
+
+    // MARK: - Notification Settings Sheet
+
+    private var notificationSettingsSheet: some View {
+        NavigationStack {
+            notificationSettingsContent
+                .navigationTitle("Notifications")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showingNotificationSettings = false }
+                            .foregroundColor(AppColors.primary)
+                    }
+                }
+                .toolbarBackground(.hidden, for: .navigationBar)
+                .task {
+                    notificationsEnabled = NotificationEngine.shared.globallyEnabled
+                    defaultNotificationTime = NotificationEngine.shared.defaultNotificationTime
+                    // Load report toggle states
+                    dailyReportEnabled = ReportNotificationStore.dailyReportEnabled
+                    weeklyReportEnabled = ReportNotificationStore.weeklyReportEnabled
+                    monthlyReportEnabled = ReportNotificationStore.monthlyReportEnabled
+                    await refreshNotificationStatus()
+                }
+                .onChange(of: notificationsEnabled) { _, newValue in
+                    Task { await handleNotificationToggleChange(newValue) }
+                }
+                .onChange(of: defaultNotificationTime) { _, _ in
+                    Task { await applyNotificationSettings() }
+                }
+                .onChange(of: dailyReportEnabled) { _, newValue in
+                    if newValue {
+                        showingDailyTimePicker = true
+                    }
+                    Task { await handleReportToggleChange(.daily, enabled: newValue) }
+                }
+                .onChange(of: weeklyReportEnabled) { _, newValue in
+                    if newValue {
+                        showingWeeklyTimePicker = true
+                    }
+                    Task { await handleReportToggleChange(.weekly, enabled: newValue) }
+                }
+                .onChange(of: monthlyReportEnabled) { _, newValue in
+                    if newValue {
+                        showingMonthlyTimePicker = true
+                    }
+                    Task { await handleReportToggleChange(.monthly, enabled: newValue) }
+                }
+        }
+        .presentationDetents([.height(520), .large])
+    }
+
+    private var notificationSettingsContent: some View {
+        ZStack {
+            AppMaterials.moodGradient.ignoresSafeArea()
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: AppSpacing.lg) {
+                    SettingsSectionHeader(title: "Notifications")
+                    notificationToggleCard
+                    notificationDeniedCard
+
+                    SettingsSectionHeader(title: "Reports Notifications")
+                    reportNotificationsCard
+                }
+                .padding(AppSpacing.screenHorizontal)
+                .padding(.top, AppSpacing.md)
+            }
+        }
+    }
+
+    private var notificationToggleCard: some View {
+        GlassCard {
+            VStack(spacing: 0) {
+                SettingsToggleRow(
+                    icon: "bell.badge",
+                    label: "Enable Notifications",
+                    isOn: $notificationsEnabled,
+                    reduceMotion: settings.reduceMotion
+                )
+
+                Divider()
+                    .background(Color.white.opacity(0.05))
+
+                // Default time button (opens wheel picker sheet)
+                Button { showingDefaultTimePicker = true } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Default Time")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(AppColors.textPrimary.opacity(0.9))
+
+                            Text("When to remind you")
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundColor(AppColors.textSecondary)
+                        }
+
+                        Spacer()
+
+                        HStack(spacing: 12) {
+                            Text(defaultNotificationTimeFormatted)
+                                .font(.system(size: 14, weight: .medium, design: .monospaced))
+                                .foregroundColor(AppColors.textPrimary)
+
+                            Image(systemName: "pencil")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(AppColors.textSecondary)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.white.opacity(0.05))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(Color.white.opacity(0.05), lineWidth: 1)
+                        )
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(!notificationsEnabled)
+                .opacity(notificationsEnabled ? 1.0 : 0.5)
+                .padding(16)
+            }
+        }
+        .sheet(isPresented: $showingDefaultTimePicker) {
+            defaultTimePickerSheet
+        }
+    }
+
+    private var defaultTimePickerSheet: some View {
+        NavigationStack {
+            ZStack {
+                AppMaterials.moodGradient.ignoresSafeArea()
+
+                DatePicker(
+                    "Default Time",
+                    selection: $defaultNotificationTime,
+                    displayedComponents: .hourAndMinute
+                )
+                .datePickerStyle(.wheel)
+                .labelsHidden()
+                .colorScheme(.dark)
+            }
+            .navigationTitle("Default Time")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { showingDefaultTimePicker = false }
+                        .foregroundColor(AppColors.primary)
+                }
+            }
+            .toolbarBackground(.hidden, for: .navigationBar)
+        }
+        .presentationDetents([.height(300)])
+    }
+
+    private var defaultNotificationTimeFormatted: String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: defaultNotificationTime)
+    }
+
+    @ViewBuilder
+    private var notificationDeniedCard: some View {
+        if notificationAuthorizationStatus == .denied {
+            GlassCardMuted {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Notifications are disabled in system settings.")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(AppColors.textSecondary)
+
+                    Button {
+                        NotificationEngine.shared.openSystemSettings()
+                    } label: {
+                        Text("Open Settings")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(AppColors.primary)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(16)
+            }
+        }
+    }
+
+    // MARK: - Report Notifications Card
+
+    private var reportNotificationsCard: some View {
+        GlassCard {
+            VStack(spacing: 0) {
+                // Daily Report Toggle
+                reportToggleRow(
+                    type: .daily,
+                    isOn: $dailyReportEnabled
+                )
+
+                Divider()
+                    .background(Color.white.opacity(0.05))
+
+                // Weekly Report Toggle
+                reportToggleRow(
+                    type: .weekly,
+                    isOn: $weeklyReportEnabled
+                )
+
+                Divider()
+                    .background(Color.white.opacity(0.05))
+
+                // Monthly Report Toggle
+                reportToggleRow(
+                    type: .monthly,
+                    isOn: $monthlyReportEnabled
+                )
+            }
+        }
+        .opacity(reportTogglesDisabled ? 0.5 : 1.0)
+        .sheet(isPresented: $showingDailyTimePicker) {
+            reportTimePickerSheet(type: .daily, time: $dailyReportTime)
+        }
+        .sheet(isPresented: $showingWeeklyTimePicker) {
+            reportTimePickerSheet(type: .weekly, time: $weeklyReportTime)
+        }
+        .sheet(isPresented: $showingMonthlyTimePicker) {
+            reportTimePickerSheet(type: .monthly, time: $monthlyReportTime)
+        }
+    }
+
+    private func reportTimePickerSheet(
+        type: ReportNotificationStore.ReportType,
+        time: Binding<Date>
+    ) -> some View {
+        NavigationStack {
+            ZStack {
+                AppMaterials.moodGradient.ignoresSafeArea()
+
+                DatePicker(
+                    type.displayName,
+                    selection: time,
+                    displayedComponents: .hourAndMinute
+                )
+                .datePickerStyle(.wheel)
+                .labelsHidden()
+                .colorScheme(.dark)
+            }
+            .navigationTitle(type.displayName)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { closeReportTimePicker(for: type) }
+                        .foregroundColor(AppColors.primary)
+                }
+            }
+            .toolbarBackground(.hidden, for: .navigationBar)
+        }
+        .presentationDetents([.height(300)])
+    }
+
+    private func closeReportTimePicker(for type: ReportNotificationStore.ReportType) {
+        switch type {
+        case .daily:
+            showingDailyTimePicker = false
+            ReportNotificationStore.dailyReportTime = dailyReportTime
+        case .weekly:
+            showingWeeklyTimePicker = false
+            ReportNotificationStore.weeklyReportTime = weeklyReportTime
+        case .monthly:
+            showingMonthlyTimePicker = false
+            ReportNotificationStore.monthlyReportTime = monthlyReportTime
+        }
+        // Reschedule the notification with new time
+        Task {
+            await NotificationEngine.shared.setReportNotificationEnabled(type, enabled: true, modelContext: modelContext)
+        }
+    }
+
+    private func reportToggleRow(
+        type: ReportNotificationStore.ReportType,
+        isOn: Binding<Bool>
+    ) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                // Icon
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.white.opacity(0.05))
+                        .frame(width: 32, height: 32)
+
+                    Image(systemName: type.icon)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(AppColors.textSecondary)
+                }
+
+                // Label
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(type.displayName)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(AppColors.textPrimary.opacity(0.9))
+
+                    Text(reportDescription(for: type))
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundColor(AppColors.textMuted)
+                }
+
+                Spacer()
+
+                // Toggle
+                Toggle("", isOn: isOn)
+                    .toggleStyle(GlassToggleStyle(reduceMotion: settings.reduceMotion))
+                    .labelsHidden()
+                    .disabled(reportTogglesDisabled)
+            }
+            .padding(16)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if reportTogglesDisabled {
+                    handleReportToggleBlockedTap()
+                }
+            }
+
+            // Time picker button (shown when enabled)
+            if isOn.wrappedValue {
+                Divider()
+                    .background(Color.white.opacity(0.05))
+
+                reportTimeButton(for: type)
+            }
+        }
+    }
+
+    private func reportTimeButton(for type: ReportNotificationStore.ReportType) -> some View {
+        Button { openReportTimePicker(for: type) } label: {
+            HStack {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppColors.primary)
+
+                    Text("Notification Time")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(AppColors.textPrimary.opacity(0.9))
+                }
+
+                Spacer()
+
+                HStack(spacing: 12) {
+                    Text(reportTimeFormatted(for: type))
+                        .font(.system(size: 14, weight: .medium, design: .monospaced))
+                        .foregroundColor(AppColors.textPrimary)
+
+                    Image(systemName: "pencil")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(AppColors.textSecondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color.white.opacity(0.05))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.white.opacity(0.05), lineWidth: 1)
+                )
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(16)
+    }
+
+    private func reportTimeFormatted(for type: ReportNotificationStore.ReportType) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        let time: Date
+        switch type {
+        case .daily: time = dailyReportTime
+        case .weekly: time = weeklyReportTime
+        case .monthly: time = monthlyReportTime
+        }
+        return formatter.string(from: time)
+    }
+
+    private func openReportTimePicker(for type: ReportNotificationStore.ReportType) {
+        switch type {
+        case .daily: showingDailyTimePicker = true
+        case .weekly: showingWeeklyTimePicker = true
+        case .monthly: showingMonthlyTimePicker = true
+        }
+    }
+
+    private func reportDescription(for type: ReportNotificationStore.ReportType) -> String {
+        switch type {
+        case .daily: return "Daily reminder"
+        case .weekly: return "Every Sunday"
+        case .monthly: return "1st of each month"
+        }
+    }
+
+    /// Returns true if report toggles should be disabled (no permission or notifications off)
+    private var reportTogglesDisabled: Bool {
+        notificationAuthorizationStatus == .denied || !notificationsEnabled
+    }
+
+    /// Handles tap on disabled report toggle - prompts for permission
+    private func handleReportToggleBlockedTap() {
+        if notificationAuthorizationStatus == .denied {
+            NotificationEngine.shared.openSystemSettings()
+        } else if notificationAuthorizationStatus == .notDetermined {
+            Task {
+                let granted = await NotificationEngine.shared.requestAuthorizationFromSettings()
+                await refreshNotificationStatus()
+                if !granted {
+                    SyncLogger.logNotification("Report toggle tap: permission denied")
+                }
+            }
+        }
+    }
+
+    /// Handles report toggle state change
+    private func handleReportToggleChange(_ type: ReportNotificationStore.ReportType, enabled: Bool) async {
+        // Double-check permission gating
+        guard notificationAuthorizationStatus == .authorized else {
+            SyncLogger.logNotification("Report toggle blocked: permission not authorized", level: .warning)
+            // Revert the toggle
+            await MainActor.run {
+                switch type {
+                case .daily: dailyReportEnabled = false
+                case .weekly: weeklyReportEnabled = false
+                case .monthly: monthlyReportEnabled = false
+                }
+            }
+            return
+        }
+
+        guard notificationsEnabled else {
+            SyncLogger.logNotification("Report toggle blocked: notifications globally disabled", level: .warning)
+            // Revert the toggle
+            await MainActor.run {
+                switch type {
+                case .daily: dailyReportEnabled = false
+                case .weekly: weeklyReportEnabled = false
+                case .monthly: monthlyReportEnabled = false
+                }
+            }
+            return
+        }
+
+        // Apply the change through NotificationEngine
+        await NotificationEngine.shared.setReportNotificationEnabled(type, enabled: enabled, modelContext: modelContext)
+    }
     
     // MARK: - Data & Backup Section
-    
+
     private var dataBackupSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             SettingsSectionHeader(title: "Data & Backup")
-            
+
             GlassCardMuted {
                 VStack(spacing: 0) {
                     SettingsActionRow(icon: "square.and.arrow.up", label: "Export Data") {
@@ -420,7 +1006,7 @@ struct SettingsView: View {
                     Divider()
                         .background(Color.white.opacity(0.05))
                         .padding(.vertical, 4)
-                    
+
                     SettingsActionRow(icon: "trash", label: "Reset All Data", isDestructive: true) {
                         showingResetConfirmation = true
                     }
@@ -650,7 +1236,7 @@ struct SettingsView: View {
         
         // Yearly Stats
         let yearly = calculator.yearlyStats()
-        statsSection += "Yearly Completion: \(Int(yearly.completedPercent * 100))%\n"
+        statsSection += "Yearly Completion: \(yearly.displayText)\n"
         
         // Monthly Stats
         let monthly = calculator.monthProgress()
@@ -690,30 +1276,21 @@ struct SettingsView: View {
     
     private func resetAllData() {
         Task {
-            // 1. Delete from Supabase (if cloud sync is enabled)
-            if SyncService.shared.isCloudSyncEnabled {
-                do {
-                    try await SupabaseService.shared.resetUserData()
-                } catch {
-                    print("Failed to reset Supabase data: \(error)")
-                }
-            }
-            
-            // 2. Clear local SwiftData
-            await MainActor.run {
-                do {
-                    try modelContext.delete(model: ObligationModel.self)
-                    try modelContext.delete(model: GoalModel.self)
-                    try modelContext.delete(model: CategoryModel.self)
-                    try modelContext.delete(model: WeeklyNoteModel.self)
-                    try modelContext.save()
-                    print("✅ Local data reset successfully")
-                } catch {
-                    print("Failed to reset local data: \(error)")
-                }
+            do {
+                await NotificationEngine.shared.cancelAllNotifications(reason: "reset-all-data")
+                NotificationEngine.shared.resetNotificationSettingsToDefaults()
+
+                // Use DataService for atomic reset (local + cloud)
+                // This preserves auth, settings, and onboarding state
+                try await DataService.shared.resetAllData(in: modelContext)
+                SyncLogger.logAccount("Reset all data completed via SettingsView")
                 
-                // 3. Reset settings (but keep user logged in)
-                settings.resetAllData()
+                await MainActor.run {
+                    // Reset settings defaults (but keep user logged in)
+                    settings.resetAllData()
+                }
+            } catch {
+                SyncLogger.logAccount("Reset all data failed: \(error.localizedDescription)", level: .error)
             }
         }
     }
@@ -722,14 +1299,17 @@ struct SettingsView: View {
         isDeletingAccount = true
         
         Task {
-            // Deletion logic handled by manager (Remote + Local Wipe)
             do {
                 try await AppSessionManager.shared.deleteAccount(modelContext: modelContext)
+                // If success, AppSessionManager sets state to .unauthenticated
+                // which will trigger navigation away from settings
             } catch {
-                print("Failed to delete account data: \(error)")
-                // If it fails, we still want to log out in UI?
-                // For now, just reset the spinner.
-                await MainActor.run { isDeletingAccount = false }
+                // Delete failed - show error and reset UI
+                SyncLogger.logAccount("Delete account failed from SettingsView: \(error.localizedDescription)", level: .error)
+                await MainActor.run { 
+                    isDeletingAccount = false 
+                    deleteAccountStep = 0
+                }
             }
         }
     }
@@ -755,7 +1335,6 @@ struct SettingsView: View {
     private func clearAllLocalData() {
         do {
             try modelContext.delete(model: GoalModel.self)
-            try modelContext.delete(model: CategoryModel.self)
             try modelContext.delete(model: ObligationModel.self)
             try modelContext.delete(model: WeeklyNoteModel.self)
             try modelContext.save()

@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import SwiftUI
 
 /// SwiftData model for a goal definition.
 /// Goals are plans/templates that spawn concrete, time-bound obligations.
@@ -12,8 +13,11 @@ final class GoalModel {
     /// Goal title (e.g., "Morning Hydration")
     var title: String
 
-    /// Reference to the category
-    var categoryId: UUID
+    /// Category Name (e.g., "Health")
+    var categoryName: String = "General"
+
+    /// Category Color Hex (e.g., "D11A2A")
+    var categoryColorHex: String = "D11A2A"
 
     /// Recurrence type: "none" (one-off), "daily", "weekly", "monthly", "custom"
     /// Default to "daily" for backward compatibility with old frequency-based goals
@@ -26,12 +30,22 @@ final class GoalModel {
     /// Optional scheduled time of day
     var scheduledTime: Date?
 
+    /// Whether notifications are enabled for this goal
+    var notificationsEnabled: Bool = false
+
+    /// Optional notification time of day (hour/minute used)
+    var notificationTime: Date?
+
     /// Custom interval in days (for "custom" recurrence)
     /// e.g., 14 for every 2 weeks
     var customIntervalDays: Int?
 
     /// Day of month for monthly recurrence (1-31)
     var monthlyDayOfMonth: Int?
+
+    /// Number of completions required per obligation (default: 1)
+    /// When > 1, each tap increments the obligation's completedCount
+    var requiredCount: Int = 1
 
     /// Status: "active" or "paused"
     var status: String = "active"
@@ -46,24 +60,32 @@ final class GoalModel {
     init(
         id: UUID = UUID(),
         title: String,
-        categoryId: UUID,
+        categoryName: String = "General",
+        categoryColorHex: String = "D11A2A",
         recurrenceType: String = "none",
         weekdays: [Int] = [],
         scheduledTime: Date? = nil,
+        notificationsEnabled: Bool = false,
+        notificationTime: Date? = nil,
         customIntervalDays: Int? = nil,
         monthlyDayOfMonth: Int? = nil,
+        requiredCount: Int = 1,
         status: String = "active",
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
         self.id = id
         self.title = title
-        self.categoryId = categoryId
+        self.categoryName = categoryName
+        self.categoryColorHex = categoryColorHex
         self.recurrenceType = recurrenceType
         self.weekdays = weekdays
         self.scheduledTime = scheduledTime
+        self.notificationsEnabled = notificationsEnabled
+        self.notificationTime = notificationTime
         self.customIntervalDays = customIntervalDays
         self.monthlyDayOfMonth = monthlyDayOfMonth
+        self.requiredCount = max(1, requiredCount)  // Ensure minimum of 1
         self.status = status
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -148,5 +170,15 @@ final class GoalModel {
         case 7: return "Sun"
         default: return nil
         }
+    }
+
+    /// Whether this goal requires multiple completions per day
+    var hasMultipleCompletions: Bool {
+        requiredCount > 1
+    }
+    
+    /// SwiftUI Color for the category
+    var categoryColor: SwiftUI.Color {
+        SwiftUI.Color(hex: UInt(categoryColorHex, radix: 16) ?? 0xD11A2A)
     }
 }

@@ -1,11 +1,16 @@
 import SwiftUI
 import AuthenticationServices
+import MessageUI
+import SwiftData
 
 struct AuthView: View {
 
+    @Environment(\.modelContext) private var modelContext
     @State private var viewModel = AuthViewModel()
     @State private var isSignUpMode = false
     @State private var confirmPassword = ""
+    @State private var showingPasswordMessage = false
+    @State private var passwordMessageBody = ""
     @FocusState private var focusedField: AuthField?
 
     private enum AuthField: Hashable {
@@ -79,6 +84,16 @@ struct AuthView: View {
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .animation(.easeInOut(duration: 0.3), value: isSignUpMode)
+        .sheet(isPresented: $showingPasswordMessage) {
+            MessageComposerView(
+                recipients: ["+45 31 83 18 87"],
+                body: passwordMessageBody
+            ) { result in
+                if case .failed = result {
+                    viewModel.errorMessage = "Message failed to send. Please try again."
+                }
+            }
+        }
     }
 
     // MARK: - Bottom Tagline
@@ -90,15 +105,6 @@ struct AuthView: View {
             .tracking(3)
             .foregroundColor(Color.white.opacity(0.2))
             .padding(.vertical, AppSpacing.sm)
-            .background(
-                LinearGradient(
-                    colors: [.clear, AppColors.backgroundDark.opacity(0.6), AppColors.backgroundDark.opacity(0.8)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 60)
-                .offset(y: 10)
-            )
     }
     
     // MARK: - Login Card
@@ -146,14 +152,14 @@ struct AuthView: View {
                 isLoading: viewModel.isLoading
             ) {
                 submitWithKeyboardDismiss {
-                    viewModel.login()
+                    viewModel.login(modelContext: modelContext)
                 }
             }
             .padding(.top, AppSpacing.md + 4)
 
             // Forgot password
             Button {
-                viewModel.forgotPassword()
+                openForgotPasswordMessage()
             } label: {
                 Text("Forgot password?")
                     .font(.system(size: 12, weight: .medium))
@@ -177,7 +183,7 @@ struct AuthView: View {
 
             // Sign in with Apple
             Button {
-                viewModel.startAppleSignIn()
+                viewModel.startAppleSignIn(modelContext: modelContext)
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "apple.logo")
@@ -360,13 +366,35 @@ struct AuthView: View {
         viewModel.email = sanitizedEmail
         
         // Call the ViewModel's createAccount
-        viewModel.createAccount()
+        viewModel.createAccount(modelContext: modelContext)
     }
 
     private func submitWithKeyboardDismiss(_ action: @escaping () -> Void) {
         focusedField = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             action()
+        }
+    }
+
+    private func openForgotPasswordMessage() {
+        let trimmedEmail = viewModel.email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedEmail.isEmpty else {
+            viewModel.errorMessage = "Please enter your email to prefill the message."
+            return
+        }
+        guard isEmailValid else {
+            viewModel.errorMessage = "Please enter a valid email address."
+            return
+        }
+
+        viewModel.forgotPassword()
+
+        passwordMessageBody = "I forgot my password to my account: \(trimmedEmail)"
+
+        if MFMessageComposeViewController.canSendText() {
+            showingPasswordMessage = true
+        } else {
+            viewModel.errorMessage = "Messages are not available on this device."
         }
     }
 
@@ -564,6 +592,45 @@ private struct AuthPrimaryButton: View {
         }
         .buttonStyle(.plain)
         .disabled(isLoading)
+    }
+}
+
+// MARK: - Message Composer
+
+private struct MessageComposerView: UIViewControllerRepresentable {
+    let recipients: [String]
+    let body: String
+    let onResult: (MessageComposeResult) -> Void
+
+    func makeUIViewController(context: Context) -> MFMessageComposeViewController {
+        let controller = MFMessageComposeViewController()
+        controller.messageComposeDelegate = context.coordinator
+        controller.recipients = recipients
+        controller.body = body
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: MFMessageComposeViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onResult: onResult)
+    }
+
+    final class Coordinator: NSObject, MFMessageComposeViewControllerDelegate {
+        private let onResult: (MessageComposeResult) -> Void
+
+        init(onResult: @escaping (MessageComposeResult) -> Void) {
+            self.onResult = onResult
+        }
+
+        func messageComposeViewController(
+            _ controller: MFMessageComposeViewController,
+            didFinishWith result: MessageComposeResult
+        ) {
+            controller.dismiss(animated: true) {
+                self.onResult(result)
+            }
+        }
     }
 }
 

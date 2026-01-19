@@ -17,34 +17,7 @@ enum OnboardingThemeVariant: String, CaseIterable {
     case steel = "Steel"
 }
 
-enum StorageMode: String, CaseIterable {
-    case cloud = "Cloud"
-    case local = "Local Only"
-    
-    /// Reads persisted storage mode. Returns nil if not yet set (onboarding incomplete).
-    static var current: StorageMode? {
-        guard let raw = UserDefaults.standard.string(forKey: "storageMode") else {
-            return nil
-        }
-        if raw.lowercased() == "cloud" || raw == StorageMode.cloud.rawValue {
-            return .cloud
-        }
-        if raw.lowercased().contains("local") || raw == StorageMode.local.rawValue {
-            return .local
-        }
-        return nil
-    }
-    
-    /// Persists storage mode to UserDefaults
-    static func persist(_ mode: StorageMode) {
-        UserDefaults.standard.set(mode.rawValue, forKey: "storageMode")
-    }
-    
-    /// Clears persisted storage mode
-    static func clear() {
-        UserDefaults.standard.removeObject(forKey: "storageMode")
-    }
-}
+// StorageMode enum moved to Services/StorageMode.swift
 
 @Observable
 final class OnboardingViewModel {
@@ -109,18 +82,6 @@ final class OnboardingViewModel {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
         return formatter.string(from: dayResetTime)
-    }
-
-    var dayResetHour: Int {
-        Calendar.current.component(.hour, from: dayResetTime)
-    }
-
-    var dayResetMinute: Int {
-        Calendar.current.component(.minute, from: dayResetTime)
-    }
-
-    var isAM: Bool {
-        dayResetHour < 12
     }
 
     // MARK: - Completion State
@@ -238,6 +199,25 @@ final class OnboardingViewModel {
         let components = calendar.dateComponents([.hour, .minute], from: dayResetTime)
         let minutes = (components.hour ?? 0) * 60 + (components.minute ?? 0)
         defaults.set(minutes, forKey: "dayResetMinutes")
+        
+        // CRITICAL FIX: Update SettingsStore singleton so it reflects the new values immediately.
+        // If SettingsStore was already initialized (e.g. at app launch), it holds stale defaults.
+        // We must update it before the first sync occurs to prevent overwriting cloud/local data with defaults.
+        Task { @MainActor in
+            let store = SettingsStore.shared
+            print("[Onboarding] ⚠️ Updating SettingsStore singleton with onboarding values...")
+            
+            // Theme mapping (Manual sync from ThemeManager since SettingsStore doesn't observe it)
+            store.selectedTheme = ThemeManager.shared.currentTheme
+            
+            store.hapticFeedback = hapticsEnabled
+            store.weekStart = weekStart
+            store.monthCalculation = monthCalculation
+            store.dayResetMinutes = minutes
+            store.userName = userName
+            
+            print("[Onboarding] ✅ SettingsStore updated. Theme: \(store.selectedTheme), ResetTime: \(minutes)m")
+        }
     }
     
     // MARK: - Cloud Sync

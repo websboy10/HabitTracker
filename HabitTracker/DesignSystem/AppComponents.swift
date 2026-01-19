@@ -3,17 +3,7 @@ import SwiftUI
 /// Shared small UI components used throughout the app.
 enum AppComponents {
     
-    // MARK: - Home Indicator Pill
-    
-    /// The bottom home indicator pill (iOS-style)
-    struct HomePill: View {
-        var body: some View {
-            RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                .fill(Color.white.opacity(0.2))
-                .frame(width: 128, height: 5)
-                .padding(.vertical, AppSpacing.sm)
-        }
-    }
+
     
     // MARK: - Vertical Separator
     
@@ -43,24 +33,7 @@ enum AppComponents {
         }
     }
     
-    // MARK: - Icon Button
-    
-    /// A circular icon button with optional active state
-    struct IconCircle: View {
-        let systemName: String
-        var isActive: Bool = false
-        
-        var body: some View {
-            Circle()
-                .fill(Color.white.opacity(0.05))
-                .frame(width: 40, height: 40)
-                .overlay(
-                    Image(systemName: systemName)
-                        .font(.system(size: AppTypography.iconSizeSmall, weight: .medium))
-                        .foregroundColor(isActive ? AppColors.textPrimary : AppColors.textSecondary)
-                )
-        }
-    }
+
 }
 
 // MARK: - Animation Timing

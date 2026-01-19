@@ -47,47 +47,6 @@ final class GoalsViewModel {
         return (try? modelContext.fetch(descriptor)) ?? []
     }
 
-    /// Fetches all categories
-    func fetchCategories() -> [CategoryModel] {
-        guard let modelContext else { return [] }
-
-        let descriptor = FetchDescriptor<CategoryModel>(
-            sortBy: [SortDescriptor(\.sortOrder)]
-        )
-
-        return (try? modelContext.fetch(descriptor)) ?? []
-    }
-
-    /// Gets category by ID
-    func category(for goalId: UUID) -> CategoryModel? {
-        guard let modelContext else { return nil }
-
-        // First get the goal to find its categoryId
-        let goalDescriptor = FetchDescriptor<GoalModel>(
-            predicate: #Predicate { $0.id == goalId }
-        )
-        guard let goal = try? modelContext.fetch(goalDescriptor).first else { return nil }
-
-        let categoryId = goal.categoryId
-        let categoryDescriptor = FetchDescriptor<CategoryModel>(
-            predicate: #Predicate { $0.id == categoryId }
-        )
-
-        return try? modelContext.fetch(categoryDescriptor).first
-    }
-
-    /// Gets category for a goal's categoryId
-    func category(for goal: GoalModel) -> CategoryModel? {
-        guard let modelContext else { return nil }
-
-        let categoryId = goal.categoryId
-        let descriptor = FetchDescriptor<CategoryModel>(
-            predicate: #Predicate { $0.id == categoryId }
-        )
-
-        return try? modelContext.fetch(descriptor).first
-    }
-
     // MARK: - Actions
 
     /// Opens form to create a new goal
@@ -106,6 +65,10 @@ final class GoalsViewModel {
     func deleteGoal(_ goal: GoalModel) {
         guard let modelContext else { return }
         let goalId = goal.id
+
+        Task { @MainActor in
+            await NotificationEngine.shared.cancelTaskNotifications(forGoalId: goalId)
+        }
 
         SyncService.shared.recordLocalGoalDeletion(goalId)
         
@@ -134,6 +97,10 @@ final class GoalsViewModel {
         goal.updatedAt = Date()
         try? modelContext?.save()
 
+        Task { @MainActor in
+            await NotificationEngine.shared.syncTaskNotifications(for: goal)
+        }
+
         // Sync update to cloud
         Task {
             await SyncService.shared.syncGoalUpdate(goal)
@@ -153,6 +120,10 @@ final class GoalsViewModel {
         // Generate obligations for the new/updated goal
         let daysAhead = daysRemainingInCurrentMonth()
         obligationScheduler?.generateUpcomingObligations(for: goal, daysAhead: daysAhead)
+
+        Task { @MainActor in
+            await NotificationEngine.shared.syncTaskNotifications(for: goal)
+        }
 
         // Sync to cloud
         Task {

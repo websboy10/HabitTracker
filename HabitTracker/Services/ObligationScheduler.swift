@@ -28,14 +28,6 @@ final class ObligationScheduler {
         try? modelContext.save()
     }
 
-    /// Generate obligations for all active goals.
-    func generateAllUpcomingObligations(daysAhead: Int = 14) {
-        let goals = fetchActiveGoals()
-        for goal in goals {
-            generateUpcomingObligations(for: goal, daysAhead: daysAhead)
-        }
-    }
-
     /// Generate obligations for the current month (includes past days in month).
     func generateCurrentMonthObligations() {
         let now = Date()
@@ -54,14 +46,6 @@ final class ObligationScheduler {
     /// Ensure obligations exist for a specific date range for all active goals.
     /// Idempotent: skips if obligation already exists for goal+date.
     /// Respects goal.createdAt: never generates before goal creation.
-    func ensureObligations(from start: Date, to end: Date) {
-        let goals = fetchActiveGoals()
-        for goal in goals {
-            generateObligations(for: goal, from: start, to: end)
-        }
-        try? modelContext.save()
-    }
-
     /// Ensure obligations exist for a specific goal in a date range.
     /// Use this when creating or updating a goal to backfill historical obligations.
     func ensureObligations(for goal: GoalModel, from start: Date, to end: Date) {
@@ -89,67 +73,11 @@ final class ObligationScheduler {
         try? modelContext.save()
     }
 
-    /// Ensure obligations exist for a specific calendar month.
-    func ensureMonthObligations(year: Int, month: Int) {
-        var components = DateComponents()
-        components.year = year
-        components.month = month
-        components.day = 1
-
-        guard let startOfMonth = calendar.date(from: components) else { return }
-        let daysInMonth = calendar.range(of: .day, in: .month, for: startOfMonth)?.count ?? 30
-        guard let endOfMonth = calendar.date(byAdding: .day, value: daysInMonth - 1, to: startOfMonth) else { return }
-
-        let goals = fetchActiveGoals()
-        for goal in goals {
-            generateObligations(for: goal, from: startOfMonth, to: endOfMonth)
-        }
-        try? modelContext.save()
-    }
-
-    /// Ensure obligations exist for current week.
-    func ensureCurrentWeekObligations() {
-        let now = Date()
-        guard let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start,
-              let weekEnd = calendar.date(byAdding: .day, value: 6, to: weekStart) else { return }
-
-        let goals = fetchActiveGoals()
-        for goal in goals {
-            generateObligations(for: goal, from: weekStart, to: weekEnd)
-        }
-        try? modelContext.save()
-    }
-
-    // MARK: - Miss Detection
-
-    /// Check pending obligations and mark as missed if past deadline (+ optional grace).
-    /// Grace period is in minutes.
-    func checkAndMarkMissedObligations(gracePeriodMinutes: Int) {
-        let now = Date()
-
-        let descriptor = FetchDescriptor<ObligationModel>(
-            predicate: #Predicate { $0.status == "pending" }
-        )
-
-        guard let pendingObligations = try? modelContext.fetch(descriptor) else { return }
-
-        for obligation in pendingObligations {
-            let deadline = deadlineEngine.completionDeadline(
-                for: obligation,
-                gracePeriodMinutes: gracePeriodMinutes
-            )
-            if deadline < now {
-                obligation.markMissed()
-            }
-        }
-
-        try? modelContext.save()
-    }
-
     // MARK: - Today's Obligations
 
     /// Fetch today's obligations with their associated goals.
-    func fetchTodaysObligations() -> [(obligation: ObligationModel, goal: GoalModel, category: CategoryModel?)] {
+    /// Category info is available directly on GoalModel via categoryName and categoryColorHex.
+    func fetchTodaysObligations() -> [(obligation: ObligationModel, goal: GoalModel)] {
         let today = calendar.startOfDay(for: Date())
         guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) else { return [] }
 
@@ -171,19 +99,13 @@ final class ObligationScheduler {
             )
             guard let goal = try? modelContext.fetch(goalDescriptor).first else { return nil }
 
-            let categoryId = goal.categoryId
-            let categoryDescriptor = FetchDescriptor<CategoryModel>(
-                predicate: #Predicate { $0.id == categoryId }
-            )
-            let category = try? modelContext.fetch(categoryDescriptor).first
-
-            return (obligation: obligation, goal: goal, category: category)
+            return (obligation: obligation, goal: goal)
         }
     }
 
-    // MARK: - Obligation Completion (ONE-WAY)
+    // MARK: - Obligation Completion
 
-    /// Complete an obligation. This is a ONE-WAY transition.
+    /// Complete an obligation (single-completion goals).
     /// Returns false if the obligation is already locked.
     @discardableResult
     func completeObligation(_ obligation: ObligationModel) -> Bool {
@@ -208,8 +130,33 @@ final class ObligationScheduler {
     }
 
     /// Toggle completion state (pending <-> completed) if allowed.
+    /// For single-completion goals (requiredCount == 1), behaves as before.
+    /// For multi-completion goals, increments count on tap, resets when fully complete.
     @discardableResult
     func toggleCompletion(_ obligation: ObligationModel, gracePeriodMinutes: Int) -> Bool {
+        // Get the goal to check requiredCount
+        guard let goal = fetchGoal(for: obligation) else {
+            // Fallback to single-completion behavior
+            let result = toggleSingleCompletion(obligation, gracePeriodMinutes: gracePeriodMinutes)
+            return result
+        }
+
+        let requiredCount = goal.requiredCount
+        var result: Bool
+
+        // Single-completion goal: use existing binary toggle logic
+        if requiredCount <= 1 {
+            result = toggleSingleCompletion(obligation, gracePeriodMinutes: gracePeriodMinutes)
+        } else {
+            // Multi-completion goal: increment or reset
+            result = toggleMultiCompletion(obligation, requiredCount: requiredCount, gracePeriodMinutes: gracePeriodMinutes)
+        }
+        
+        return result
+    }
+
+    /// Binary toggle for single-completion goals (original behavior)
+    private func toggleSingleCompletion(_ obligation: ObligationModel, gracePeriodMinutes: Int) -> Bool {
         if obligation.isCompleted {
             return uncompleteObligation(obligation, gracePeriodMinutes: gracePeriodMinutes)
         }
@@ -220,41 +167,38 @@ final class ObligationScheduler {
         return false
     }
 
+    /// Multi-completion toggle: increment count, reset when fully complete
+    private func toggleMultiCompletion(_ obligation: ObligationModel, requiredCount: Int, gracePeriodMinutes: Int) -> Bool {
+        guard canToggle(obligation, gracePeriodMinutes: gracePeriodMinutes) else { return false }
+
+        // If fully completed, tapping resets to 0
+        if obligation.isCompleted {
+            let deadline = deadlineEngine.completionDeadline(for: obligation, gracePeriodMinutes: gracePeriodMinutes)
+            guard Date() <= deadline else { return false }
+            let success = obligation.resetCompletion()
+            if success {
+                try? modelContext.save()
+            }
+            return success
+        }
+
+        // Otherwise, increment the completion count
+        obligation.incrementCompletion(requiredCount: requiredCount)
+        try? modelContext.save()
+        return true
+    }
+
     func canToggle(_ obligation: ObligationModel, gracePeriodMinutes: Int) -> Bool {
         deadlineEngine.canToggle(obligation, gracePeriodMinutes: gracePeriodMinutes)
     }
 
-    // MARK: - Counts
-
-    /// Count of today's obligations by status.
-    func todayCounts() -> (total: Int, completed: Int, missed: Int, pending: Int) {
-        let today = calendar.startOfDay(for: Date())
-        guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) else {
-            return (0, 0, 0, 0)
-        }
-
-        let descriptor = FetchDescriptor<ObligationModel>()
-        guard let obligations = try? modelContext.fetch(descriptor) else {
-            return (0, 0, 0, 0)
-        }
-
-        let todaysObligations = obligations.filter { obligation in
-            obligation.scheduledAt >= today && obligation.scheduledAt < tomorrow
-        }
-
-        let now = Date()
-        let completed = todaysObligations.filter { $0.isCompleted }.count
-        let missed = todaysObligations.filter { deadlineEngine.isEffectivelyMissed($0, at: now) }.count
-        let pending = todaysObligations.filter { deadlineEngine.isEffectivelyPending($0, at: now) }.count
-
-        return (todaysObligations.count, completed, missed, pending)
-    }
-
-    /// Today's completion percentage (based on resolved obligations).
-    func todayProgress() -> Double {
-        let counts = todayCounts()
-        guard counts.total > 0 else { return 0 }
-        return Double(counts.completed) / Double(counts.total)
+    /// Fetch the goal associated with an obligation
+    private func fetchGoal(for obligation: ObligationModel) -> GoalModel? {
+        let goalId = obligation.goalId
+        let descriptor = FetchDescriptor<GoalModel>(
+            predicate: #Predicate { $0.id == goalId }
+        )
+        return try? modelContext.fetch(descriptor).first
     }
 
     // MARK: - Helpers
@@ -264,13 +208,6 @@ final class ObligationScheduler {
             predicate: #Predicate { $0.status == "active" }
         )
         return (try? modelContext.fetch(descriptor)) ?? []
-    }
-
-    private func fetchGoal(for goalId: UUID) -> GoalModel? {
-        let descriptor = FetchDescriptor<GoalModel>(
-            predicate: #Predicate { $0.id == goalId }
-        )
-        return try? modelContext.fetch(descriptor).first
     }
 
     private func createObligationIfNeeded(for goal: GoalModel, on date: Date) {

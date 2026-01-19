@@ -37,7 +37,8 @@ final class HomeViewModel {
     // MARK: - Today's Obligations
 
     /// Fetches today's obligations with goal information
-    func fetchTodaysObligations() -> [(obligation: ObligationModel, goal: GoalModel, category: CategoryModel?)] {
+    /// Category info is available directly on GoalModel via categoryName and categoryColorHex.
+    func fetchTodaysObligations() -> [(obligation: ObligationModel, goal: GoalModel)] {
         obligationScheduler?.fetchTodaysObligations() ?? []
     }
 
@@ -63,37 +64,26 @@ final class HomeViewModel {
     var remainingCount: Int { todayCounts.remaining }
     var missedCount: Int { todayCountsExtended.missed }
 
-    /// Weekly progress
-    var weekProgress: (completed: Int, total: Int, dayProgress: [Bool]) {
-        progressCalculator?.weekProgress() ?? (0, 0, [])
-    }
-
-    /// Week progress model for WeekOverviewCard
-    var weekProgressModel: WeekProgress {
-        let progress = weekProgress
-        return WeekProgress(
-            completed: progress.completed,
-            total: progress.total,
-            dayProgress: progress.dayProgress.isEmpty ? Array(repeating: false, count: 7) : progress.dayProgress
-        )
-    }
-
     /// Monthly week progress for Monthly Ledger (weeks 1-4)
     var monthlyWeekProgress: [(completed: Int, total: Int, percentage: Double)] {
         progressCalculator?.monthlyWeekProgress() ?? Array(repeating: (0, 0, 0), count: 4)
+    }
+
+    /// Monthly week progress for a selected month (weeks 1-4)
+    func monthlyWeekProgress(for monthDate: Date) -> [(completed: Int, total: Int, percentage: Double)] {
+        progressCalculator?.monthlyWeekProgress(for: monthDate) ?? Array(repeating: (0, 0, 0), count: 4)
     }
 
     /// Monthly totals for Monthly Ledger header (entire month)
     var monthlyTotals: (completed: Int, total: Int) {
         progressCalculator?.monthlyTotals() ?? (0, 0)
     }
-    
-    /// Full monthly stats including completed, missed, pending, total, and percentage.
-    /// This matches StatsCalculator's monthProgress output for consistency.
-    var monthlyFullStats: (completed: Int, missed: Int, pending: Int, total: Int, percentage: Double) {
-        progressCalculator?.monthlyStats() ?? (0, 0, 0, 0, 0)
-    }
 
+    /// Monthly totals for a selected month (entire month)
+    func monthlyTotals(for monthDate: Date) -> (completed: Int, total: Int) {
+        progressCalculator?.monthlyTotals(for: monthDate) ?? (0, 0)
+    }
+    
     // MARK: - Actions
 
     /// Toggle an obligation completion if within its window
@@ -146,26 +136,4 @@ final class HomeViewModel {
         return calendar.date(byAdding: .day, value: 1, to: resetToday) ?? resetToday
     }
 
-    /// Refresh obligations (check for missed, generate new)
-    func refreshObligations() {
-        guard let obligationScheduler else { return }
-
-        if let context = modelContext {
-            DeadlineProcessor.shared.processPendingObligations(modelContext: context)
-        }
-
-        // Generate obligations for the current month
-        obligationScheduler.generateCurrentMonthObligations()
-    }
-
-    // MARK: - Sync
-
-    /// Triggers a full sync with cloud
-    func performSync() {
-        guard let modelContext else { return }
-
-        Task {
-            await SyncService.shared.performFullSync(modelContext: modelContext)
-        }
-    }
 }

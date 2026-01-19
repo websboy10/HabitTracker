@@ -10,35 +10,29 @@ final class StatsCalculator {
     private let modelContext: ModelContext
     private let calendar = Calendar.current
     private let deadlineEngine = DeadlineEngine.shared
+    private let progressCalculator: ProgressCalculator
+    // Note: CalendarService integration disabled - file exists but not added to project
+    // private let calendarService = CalendarService.shared
 
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
         // Configure deadline engine with model context for goal lookups
         deadlineEngine.configure(with: modelContext)
+        self.progressCalculator = ProgressCalculator(modelContext: modelContext)
     }
 
-    // MARK: - Yearly Stats (365-day math)
+    // MARK: - Yearly Stats (Active Goals + Calendar Year)
 
-    /// Returns yearly statistics for a specific year based on daily goal volume.
-    /// Calculates as: completed_daily_tasks / (days_in_year × daily_goals_count) × 100
+    /// Returns yearly statistics for a specific year based on active goals and frequency rules.
+    /// Completed counts are based on completions within the calendar year.
     func yearlyStats(for year: Int? = nil) -> YearlyStats {
-        let now = Date()
-        let targetYear = year ?? calendar.component(.year, from: now)
-        
-        guard let yearStart = calendar.date(from: DateComponents(year: targetYear, month: 1, day: 1)),
-              let yearEnd = calendar.date(from: DateComponents(year: targetYear + 1, month: 1, day: 1)) else {
-            return YearlyStats(completedPercent: 0, year: targetYear)
-        }
-        
-        // For current year, only count days up to today
-        let effectiveEnd = min(yearEnd, now)
-
-        let obligations = fetchObligationsForDateRange(from: yearStart, to: effectiveEnd)
-        let completed = obligations.filter { $0.isCompleted }.count
-        let total = obligations.count
-
-        let percent = total > 0 ? Double(completed) / Double(total) : 0
-        return YearlyStats(completedPercent: min(percent, 1.0), year: targetYear)
+        let totals = progressCalculator.yearlyTotals(for: year)
+        return YearlyStats(
+            completedPercent: totals.percentage,
+            completed: totals.completed,
+            expected: totals.expected,
+            year: totals.year
+        )
     }
 
     // MARK: - Monthly Progress (Obligations Only)
@@ -80,7 +74,8 @@ final class StatsCalculator {
             missed: missed,
             pending: pending,
             monthName: monthName,
-            year: year
+            year: year,
+            busyDaysCount: 0  // CalendarService disabled
         )
         
         return stats
@@ -116,6 +111,9 @@ final class StatsCalculator {
             // A week with any misses is NOT passed
             let passed = total > 0 && completed == total && missed == 0
 
+            // CalendarService integration disabled
+            let calendarEventCount = 0
+
             entries.append(WeekLedgerEntry(
                 weekNumber: weekNumber,
                 year: year,
@@ -123,7 +121,8 @@ final class StatsCalculator {
                 passed: passed,
                 totalObligations: total,
                 completed: completed,
-                missed: missed
+                missed: missed,
+                calendarEventCount: calendarEventCount
             ))
         }
 
@@ -160,6 +159,9 @@ final class StatsCalculator {
 
             let passed = total > 0 && completed == total && missed == 0
 
+            // CalendarService integration disabled
+            let calendarEventCount = 0
+
             entries.append(WeekLedgerEntry(
                 weekNumber: index + 1,
                 year: year,
@@ -167,7 +169,8 @@ final class StatsCalculator {
                 passed: passed,
                 totalObligations: total,
                 completed: completed,
-                missed: missed
+                missed: missed,
+                calendarEventCount: calendarEventCount
             ))
         }
 
@@ -450,7 +453,15 @@ struct Rolling12MonthStats {
 
 struct YearlyStats {
     let completedPercent: Double
+    let completed: Int
+    let expected: Int
     let year: Int
+
+    var displayText: String {
+        let clamped = min(max(completedPercent, 0), 1)
+        let percent = Int((clamped * 100).rounded())
+        return "\(percent)%"
+    }
 }
 
 struct MonthProgressStats {
@@ -461,6 +472,7 @@ struct MonthProgressStats {
     let pending: Int
     var monthName: String = ""
     var year: Int = 0
+    var busyDaysCount: Int = 0  // Calendar events in month
 }
 
 struct WeekLedgerEntry: Identifiable {
@@ -472,6 +484,7 @@ struct WeekLedgerEntry: Identifiable {
     let totalObligations: Int
     let completed: Int
     let missed: Int
+    var calendarEventCount: Int = 0  // Calendar events in week
 }
 
 struct GoalConsistencyEntry: Identifiable {

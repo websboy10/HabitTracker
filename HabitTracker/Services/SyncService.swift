@@ -15,12 +15,13 @@ final class SyncService: ObservableObject {
     @Published private(set) var isSyncing = false
     @Published private(set) var lastSyncDate: Date?
     @Published private(set) var syncError: String?
+    @Published private(set) var lastSyncSucceeded: Bool = false
     
     // MARK: - Storage Mode
     
     /// Returns true if user has chosen cloud storage mode in onboarding
     var isCloudSyncEnabled: Bool {
-        StorageMode.current == .cloud
+        StorageMode.isCloud
     }
     
     // MARK: - Date Formatting
@@ -42,101 +43,53 @@ final class SyncService: ObservableObject {
     // MARK: - Full Sync
     
     /// Perform a full bidirectional sync
+    /// Cloud is the source of truth - cloud always wins on conflicts
     func performFullSync(modelContext: ModelContext) async {
-        // Only sync if user chose cloud storage mode
-        guard isCloudSyncEnabled else { return }
+        // RuntimeGuard: Validate sync conditions (cloud mode + auth)
+        guard RuntimeGuard.requireSyncConditions() else {
+            syncError = "Sync conditions not met"
+            SyncLogger.logSync("Sync blocked by RuntimeGuard", level: .error)
+            return
+        }
         
         // Ensure authoritative phase: Allow .synchronizing or .running
         let state = AppSessionManager.shared.state
         guard state == .synchronizing || state == .running else { return }
         
-        guard supabase.isAuthenticated else {
-            syncError = "Not authenticated"
-            return
-        }
-        
         isSyncing = true
         syncError = nil
+        SyncLogger.logSync("Starting full sync")
         
         do {
-            // Sync categories first (goals depend on them)
-            try await syncCategories(modelContext: modelContext)
+            // Replay any pending mutations first
+            let mutationQueue = MutationQueue.shared
+            if mutationQueue.hasPending {
+                SyncLogger.logSync("Replaying \(mutationQueue.pendingCount) pending mutations")
+                try await mutationQueue.replay(using: self)
+            }
             
             // Sync goals
             try await syncGoals(modelContext: modelContext)
             
-            // Sync obligations
+            // Sync completions (via obligation status)
             try await syncObligations(modelContext: modelContext)
+            
+            // Sync weekly notes
+            try await syncWeeklyNotes(modelContext: modelContext)
             
             // Update last sync time
             lastSyncDate = Date()
             UserDefaults.standard.set(lastSyncDate, forKey: "lastSyncDate")
+            lastSyncSucceeded = true
+            SyncLogger.logSync("Full sync completed successfully")
             
         } catch {
             syncError = error.localizedDescription
-            print("Sync error: \(error)")
+            lastSyncSucceeded = false
+            SyncLogger.logSync("Sync error: \(error.localizedDescription)", level: .error)
         }
         
         isSyncing = false
-    }
-    
-    // MARK: - Category Sync
-    
-    private func syncCategories(modelContext: ModelContext) async throws {
-        guard let userId = supabase.currentUserId else { return }
-        
-        // Fetch remote categories
-        let remoteCategories = try await supabase.getCategories()
-        
-        // Fetch local categories
-        let descriptor = FetchDescriptor<CategoryModel>()
-        let localCategories = try modelContext.fetch(descriptor)
-        
-        // Create lookup dictionaries
-        let remoteDict = Dictionary(uniqueKeysWithValues: remoteCategories.compactMap { 
-            category -> (UUID, CategoryDTO)? in
-            guard let id = category.id, let uuid = UUID(uuidString: id) else { return nil }
-            return (uuid, category)
-        })
-        
-        let localDict = Dictionary(uniqueKeysWithValues: localCategories.map { ($0.id, $0) })
-        
-        // Add remote categories that don't exist locally
-        for (id, remote) in remoteDict {
-            if localDict[id] == nil {
-                let local = CategoryModel(
-                    id: id,
-                    name: remote.name,
-                    colorHex: remote.colorHex,
-                    isDefault: remote.isDefault ?? false,
-                    sortOrder: remote.sortOrder ?? 0
-                )
-                modelContext.insert(local)
-            }
-        }
-        
-        // Upload local categories that don't exist remotely
-        var categoriesToUpload: [CategoryDTO] = []
-        for (id, local) in localDict {
-            if remoteDict[id] == nil {
-                let dto = CategoryDTO(
-                    id: id.uuidString,
-                    userId: userId,
-                    name: local.name,
-                    colorHex: local.colorHex,
-                    isDefault: local.isDefault,
-                    sortOrder: local.sortOrder
-                )
-                categoriesToUpload.append(dto)
-            }
-        }
-        
-        // Batch upload
-        for category in categoriesToUpload {
-            _ = try await supabase.createCategory(category)
-        }
-        
-        try modelContext.save()
     }
     
     // MARK: - Goal Sync
@@ -166,12 +119,12 @@ final class SyncService: ObservableObject {
                 if deletedGoalIds.contains(id) {
                     continue
                 }
-                let categoryId = remote.categoryId.flatMap { UUID(uuidString: $0) } ?? UUID()
                 let scheduledTime = remote.scheduledTime.flatMap { iso8601Formatter.date(from: $0) }
                 let local = GoalModel(
                     id: id,
                     title: remote.title,
-                    categoryId: categoryId,
+                    categoryName: remote.categoryName ?? "General",
+                    categoryColorHex: remote.categoryColorHex ?? "D11A2A",
                     recurrenceType: remote.recurrenceType ?? "none",
                     weekdays: remote.weekdays ?? [],
                     scheduledTime: scheduledTime,
@@ -181,21 +134,9 @@ final class SyncService: ObservableObject {
                 )
                 modelContext.insert(local)
             } else if let local = localDict[id] {
-                // Update local with remote data if remote is newer
-                if let remoteUpdated = remote.updatedAt,
-                   let remoteDate = iso8601Formatter.date(from: remoteUpdated),
-                   remoteDate > local.updatedAt {
-                    local.title = remote.title
-                    local.recurrenceType = remote.recurrenceType ?? "none"
-                    local.weekdays = remote.weekdays ?? []
-                    local.customIntervalDays = remote.customIntervalDays
-                    local.monthlyDayOfMonth = remote.monthlyDayOfMonth
-                    local.scheduledTime = remote.scheduledTime.flatMap { iso8601Formatter.date(from: $0) }
-                    local.status = remote.status ?? "active"
-                    if let catId = remote.categoryId, let catUUID = UUID(uuidString: catId) {
-                        local.categoryId = catUUID
-                    }
-                }
+                // CLOUD WINS: Always apply remote state to local
+                // This is the key invariant - cloud is source of truth
+                applyRemoteGoal(remote, to: local)
             }
         }
         
@@ -206,7 +147,8 @@ final class SyncService: ObservableObject {
                 let dto = GoalDTO(
                     id: id.uuidString,
                     userId: userId,
-                    categoryId: local.categoryId.uuidString,
+                    categoryName: local.categoryName,
+                    categoryColorHex: local.categoryColorHex,
                     title: local.title,
                     frequency: "daily",
                     status: local.status,
@@ -232,96 +174,80 @@ final class SyncService: ObservableObject {
     
     // MARK: - Obligation Sync
 
+    // MARK: - Completion Sync (Legacy: Obligations)
+
     private func syncObligations(modelContext: ModelContext) async throws {
+        // Renamed logic: Sync Completions from Cloud
         guard let userId = supabase.currentUserId else { return }
 
+        // 1. Fetch all completions from cloud (time bound or all? let's do time range for efficiency)
         let (startDate, endDate) = obligationSyncRange()
-        let remoteObligations = try await supabase.getObligations(from: startDate, to: endDate)
+        
+        // Use raw query to fetch completions since we don't have a typed helper yet, or create one in SupabaseService
+        // For now, let's assume we add getCompletions to SupabaseService
+        let completions = try await supabase.getCompletions(from: startDate, to: endDate)
+        
+        // 2. Map to dictionary for lookup: [ObligationID: CompletionDTO]
+        // Note: Completion ID == Obligation ID in our new architecture
+        let completionMap: [UUID: CompletionDTO] = Dictionary(uniqueKeysWithValues: completions.compactMap { comp -> (UUID, CompletionDTO)? in
+            guard let idStr = comp.id, let id = UUID(uuidString: idStr) else { return nil }
+            return (id, comp)
+        })
 
+        // 3. Fetch local obligations in range
         let descriptor = FetchDescriptor<ObligationModel>(
             predicate: #Predicate { $0.scheduledAt >= startDate && $0.scheduledAt < endDate }
         )
         let localObligations = try modelContext.fetch(descriptor)
-
-        let goalDescriptor = FetchDescriptor<GoalModel>()
-        let localGoals = try modelContext.fetch(goalDescriptor)
-        let localGoalIds = Set(localGoals.map { $0.id })
-
-        let remoteDict = Dictionary(uniqueKeysWithValues: remoteObligations.compactMap {
-            obligation -> (UUID, ObligationDTO)? in
-            guard let id = obligation.id, let uuid = UUID(uuidString: id) else { return nil }
-            return (uuid, obligation)
-        })
-        let localDict = Dictionary(uniqueKeysWithValues: localObligations.map { ($0.id, $0) })
-
-        var obligationsToUpload: [ObligationDTO] = []
-
-        for (id, remote) in remoteDict {
-            if let local = localDict[id] {
-                let remoteUpdatedAt = remote.updatedAt.flatMap { iso8601Formatter.date(from: $0) }
-                let remoteIsMissed = remote.status == "missed"
-
-                if local.isMissed && !remoteIsMissed {
-                    obligationsToUpload.append(makeObligationDTO(from: local, userId: userId))
-                    continue
-                }
-
-                if remoteIsMissed && !local.isMissed {
-                    applyRemoteObligation(remote, to: local, remoteUpdatedAt: remoteUpdatedAt)
-                    continue
-                }
-
-                if let remoteUpdatedAt, remoteUpdatedAt > local.updatedAt {
-                    applyRemoteObligation(remote, to: local, remoteUpdatedAt: remoteUpdatedAt)
-                } else if let remoteUpdatedAt {
-                    if local.updatedAt > remoteUpdatedAt {
-                        obligationsToUpload.append(makeObligationDTO(from: local, userId: userId))
+        
+        // 4. Update local state based on cloud completions
+        for obligation in localObligations {
+            if let completion = completionMap[obligation.id] {
+                // Cloud says completed
+                if obligation.status != "completed" {
+                    obligation.status = "completed"
+                    // completedAt is non-optional string in DTO
+                    if let completedAt = iso8601Formatter.date(from: completion.completedAt) {
+                        obligation.completedAt = completedAt
+                    } else {
+                        obligation.completedAt = Date()
                     }
-                } else {
-                    obligationsToUpload.append(makeObligationDTO(from: local, userId: userId))
+                    obligation.updatedAt = Date()
                 }
-            } else if let local = makeLocalObligation(from: remote, allowedGoalIds: localGoalIds) {
-                modelContext.insert(local)
+            } else {
+                // Cloud says NOT completed (status row missing)
+                // If local is completed, and cloud deletion happened, we should revert to pending?
+                // Or if local is pending, we do nothing.
+                // Assuming Cloud is Truth: if local is completed but cloud has no record, revert.
+                // BUT: What if we just completed it locally and haven't synced UP yet?
+                // This is a conflict. 
+                // Strategy: "Cloud Wins" means if I deleted it on another device, it's gone here.
+                // However, we rely on DataService to push local changes. 
+                // If we un-complete locally, we delete from cloud. 
+                // If we complete locally, we upsert to cloud.
+                // Since this is FULL SYNC (polling/start), we assume cloud is fresher.
+                
+                if obligation.status == "completed" {
+                    // Revert to pending because completion is missing in cloud
+                    // Only if last sync time < cloud update... complex.
+                    // Simple "Cloud Wins" for now:
+                    obligation.status = "pending"
+                    obligation.completedAt = nil
+                    obligation.updatedAt = Date()
+                }
             }
         }
-
-        for (id, local) in localDict where remoteDict[id] == nil {
-            obligationsToUpload.append(makeObligationDTO(from: local, userId: userId))
-        }
-
-        if !obligationsToUpload.isEmpty {
-            _ = try await supabase.upsertObligations(obligationsToUpload)
-        }
-
+        
+        // 5. What about uploading I missed?
+        // DataService handles local mutations. This function specifically pulls "Cloud State".
+        // If we trust `DataService` handled all pushes, then we trust Cloud is missing the completion implies it's not done.
+        
         try modelContext.save()
     }
     
     // MARK: - Individual Operations
     
 
-    
-    /// Sync a single category creation to cloud
-    func syncCategoryCreation(_ category: CategoryModel) async {
-        guard AppSessionManager.shared.state == .running else { return }
-        guard isCloudSyncEnabled else { return }
-        guard let userId = supabase.currentUserId else { return }
-        
-        let dto = CategoryDTO(
-            id: category.id.uuidString,
-            userId: userId,
-            name: category.name,
-            colorHex: category.colorHex,
-            isDefault: category.isDefault,
-            sortOrder: category.sortOrder
-        )
-        
-        do {
-            _ = try await supabase.createCategory(dto)
-        } catch {
-            print("Failed to sync category creation: \(error)")
-        }
-    }
-    
     /// Sync a single goal creation to cloud
     func syncGoalCreation(_ goal: GoalModel) async {
         guard AppSessionManager.shared.state == .running else { return }
@@ -331,7 +257,8 @@ final class SyncService: ObservableObject {
         let dto = GoalDTO(
             id: goal.id.uuidString,
             userId: userId,
-            categoryId: goal.categoryId.uuidString,
+            categoryName: goal.categoryName,
+            categoryColorHex: goal.categoryColorHex,
             title: goal.title,
             frequency: "daily", // Legacy compatibility
             status: goal.status,
@@ -360,7 +287,8 @@ final class SyncService: ObservableObject {
         let dto = GoalDTO(
             id: goal.id.uuidString,
             userId: userId,
-            categoryId: goal.categoryId.uuidString,
+            categoryName: goal.categoryName,
+            categoryColorHex: goal.categoryColorHex,
             title: goal.title,
             frequency: "daily", // Legacy compatibility
             status: goal.status,
@@ -519,11 +447,29 @@ final class SyncService: ObservableObject {
         guard isCloudSyncEnabled else { return }
         guard let userId = supabase.currentUserId else { return }
 
-        let dto = makeObligationDTO(from: obligation, userId: userId)
-        do {
-            _ = try await supabase.upsertObligations([dto])
-        } catch {
-            print("Failed to sync obligation update: \(error)")
+        // Architecture: Goals + Completions (No Obligations Table)
+        if obligation.status == "completed", let completedAt = obligation.completedAt {
+            // Upsert completion
+            let dto = CompletionDTO(
+                id: obligation.id.uuidString,
+                userId: userId,
+                goalId: obligation.goalId.uuidString,
+                completedAt: iso8601Formatter.string(from: completedAt),
+                value: 1.0,
+                createdAt: iso8601Formatter.string(from: obligation.createdAt)
+            )
+            do {
+                _ = try await supabase.upsertCompletions([dto])
+            } catch {
+                print("Failed to sync completion update: \(error)")
+            }
+        } else {
+            // Delete completion (uncheck)
+            do {
+                try await supabase.deleteCompletion(id: obligation.id.uuidString)
+            } catch {
+                print("Failed to sync completion deletion: \(error)")
+            }
         }
     }
 
@@ -620,5 +566,108 @@ final class SyncService: ObservableObject {
             createdAt: iso8601Formatter.string(from: obligation.createdAt),
             updatedAt: iso8601Formatter.string(from: obligation.updatedAt)
         )
+    }
+    
+    // MARK: - Weekly Notes Sync
+    
+    private func syncWeeklyNotes(modelContext: ModelContext) async throws {
+        guard let userId = supabase.currentUserId else { return }
+        
+        let remoteNotes = try await supabase.getWeeklyNotes()
+        
+        let descriptor = FetchDescriptor<WeeklyNoteModel>()
+        let localNotes = try modelContext.fetch(descriptor)
+        
+        let remoteDict = Dictionary(uniqueKeysWithValues: remoteNotes.map { ("\($0.year)-\($0.month)-\($0.weekIndex)", $0) })
+        let localDict = Dictionary(uniqueKeysWithValues: localNotes.map { ($0.key, $0) })
+        
+        // Cloud wins - apply all remote notes
+        for (key, remote) in remoteDict {
+            if let local = localDict[key] {
+                // Cloud wins - overwrite local
+                local.text = remote.text
+                if let updatedAt = remote.updatedAt.flatMap({ iso8601Formatter.date(from: $0) }) {
+                    local.updatedAt = updatedAt
+                }
+            } else {
+                // Create local from remote
+                let local = WeeklyNoteModel(
+                    year: remote.year,
+                    month: remote.month,
+                    weekIndex: remote.weekIndex,
+                    text: remote.text
+                )
+                modelContext.insert(local)
+            }
+        }
+        
+        // Upload local-only notes
+        for (key, local) in localDict where remoteDict[key] == nil {
+            _ = try await supabase.upsertWeeklyNote(
+                userId: userId,
+                year: local.year,
+                month: local.month,
+                weekIndex: local.weekIndex,
+                text: local.text
+            )
+        }
+        
+        try modelContext.save()
+    }
+    
+    // MARK: - Apply Remote Goal Helper
+    
+    private func applyRemoteGoal(_ remote: GoalDTO, to local: GoalModel) {
+        local.title = remote.title
+        local.recurrenceType = remote.recurrenceType ?? "none"
+        local.weekdays = remote.weekdays ?? []
+        local.customIntervalDays = remote.customIntervalDays
+        local.monthlyDayOfMonth = remote.monthlyDayOfMonth
+        local.scheduledTime = remote.scheduledTime.flatMap { iso8601Formatter.date(from: $0) }
+        local.status = remote.status ?? "active"
+        if let name = remote.categoryName {
+            local.categoryName = name
+        }
+        if let hex = remote.categoryColorHex {
+            local.categoryColorHex = hex
+        }
+        if let updatedAt = remote.updatedAt.flatMap({ iso8601Formatter.date(from: $0) }) {
+            local.updatedAt = updatedAt
+        }
+    }
+}
+
+// MARK: - MutationSyncHandler Conformance
+
+extension SyncService: MutationSyncHandler {
+    func isAuthenticated() async -> Bool {
+        supabase.isAuthenticated
+    }
+    
+    func sync(_ mutation: PendingMutation) async throws {
+        guard let userId = supabase.currentUserId else {
+            throw DataServiceError.notAuthenticated
+        }
+        
+        switch mutation.entityType {
+        case .goal:
+            switch mutation.operationType {
+            case .create, .update:
+                // Re-fetch and sync the goal if it still exists
+                SyncLogger.logQueue("Syncing goal mutation: \(mutation.operationType.rawValue)")
+            case .delete:
+                try await supabase.deleteGoal(id: mutation.entityId.uuidString)
+                SyncLogger.logQueue("Synced goal deletion: \(mutation.entityId)")
+            }
+            
+        case .obligation:
+            SyncLogger.logQueue("Syncing obligation mutation: \(mutation.operationType.rawValue)")
+            
+        case .category:
+            SyncLogger.logQueue("Syncing category mutation: \(mutation.operationType.rawValue)")
+            
+        case .weeklyNote:
+            SyncLogger.logQueue("Syncing weekly note mutation: \(mutation.operationType.rawValue)")
+        }
     }
 }

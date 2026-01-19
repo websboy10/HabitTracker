@@ -1,6 +1,7 @@
 import SwiftUI
 import AuthenticationServices
 import CryptoKit
+import SwiftData
 
 @Observable
 final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
@@ -15,43 +16,61 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
     // Apple Sign In
     var currentNonce: String?
     
+    // Context for wiping data on user switch
+    var modelContext: ModelContext?
+    
     // MARK: - Dependencies
     
-    private let supabase = SupabaseService.shared
+    private let authEngine = AuthEngine.shared
 
     // MARK: - Actions
 
-    func login() {
+    func login(modelContext: ModelContext) {
         guard !email.isEmpty, !password.isEmpty else {
-            errorMessage = "Please enter email and password"
+            errorMessage = "Please enter your email and password."
+            return
+        }
+
+        guard isValidEmail(email) else {
+            errorMessage = "Please enter a valid email address."
             return
         }
 
         isLoading = true
         errorMessage = nil
 
+        // Store context for use in performLogin
+        self.modelContext = modelContext
         Task {
             await performLogin()
         }
     }
 
-    func createAccount() {
+    func createAccount(modelContext: ModelContext) {
         guard !email.isEmpty, !password.isEmpty else {
-            errorMessage = "Please enter email and password"
+            errorMessage = "Please enter your email and password."
+            return
+        }
+
+        guard isValidEmail(email) else {
+            errorMessage = "Please enter a valid email address."
             return
         }
 
         isLoading = true
         errorMessage = nil
 
+        // Store context for use in performSignUp
+        self.modelContext = modelContext
         Task {
             await performSignUp()
         }
     }
     
-    func startAppleSignIn() {
+    func startAppleSignIn(modelContext: ModelContext) {
         isLoading = true
         errorMessage = nil
+        self.modelContext = modelContext
         
         // Generate nonce
         let nonce = generateNonceString()
@@ -70,7 +89,12 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
 
     func forgotPassword() {
         guard !email.isEmpty else {
-            errorMessage = "Please enter your email"
+            errorMessage = "Please enter your email."
+            return
+        }
+
+        guard isValidEmail(email) else {
+            errorMessage = "Please enter a valid email address."
             return
         }
 
@@ -79,12 +103,6 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
 
         Task {
             await performPasswordReset()
-        }
-    }
-    
-    func logout() {
-        Task {
-            await supabase.signOut()
         }
     }
     
@@ -151,7 +169,7 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
     // MARK: - Apple Helpers
     
     func generateNonceString() -> String {
-        let characters = "0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._"
+        let characters = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-._"
         var randomString = ""
         var error: Error? = nil
         
@@ -192,28 +210,29 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
         return hashString
     }
     
-    // MARK: - State Helpers
-    
-    var isAuthenticated: Bool {
-        supabase.isAuthenticated
-    }
-
     // MARK: - Private Methods
     
     @MainActor
     private func performAppleSignIn(idToken: String, nonce: String) async {
-         do {
-             _ = try await supabase.signInWithIdToken(idToken: idToken, nonce: nonce)
-             
-             // Hand off to Session Manager
-             await AppSessionManager.shared.loginSuccess()
-             
-         } catch let error as SupabaseError {
-             errorMessage = error.localizedDescription
-         } catch {
-             errorMessage = "Sign in with Apple failed"
-         }
-         isLoading = false
+        do {
+            // Use AuthEngine as single authority
+            try await authEngine.loginWithApple(idToken: idToken, nonce: nonce)
+            SyncLogger.logAuth("Apple login successful via AuthViewModel")
+            
+            guard let context = self.modelContext else {
+                 SyncLogger.logAuth("Apple Login: Missing ModelContext", level: .error)
+                 return
+            }
+            
+            // Hand off to Session Manager
+            await AppSessionManager.shared.loginSuccess(modelContext: context)
+            
+        } catch let error as AuthEngineError {
+            errorMessage = error.localizedDescription
+        } catch {
+            errorMessage = friendlyErrorMessage(from: error, fallback: "Sign in with Apple failed. Please try again.")
+        }
+        isLoading = false
     }
 
 
@@ -221,24 +240,31 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
     private func performLogin() async {
         defer { isLoading = false }
 
-        print("[AuthViewModel] 🔐 Attempting login...")
+        SyncLogger.logAuth("AuthViewModel: Starting email login")
         
         do {
-            _ = try await supabase.signIn(email: email, password: password)
-            print("[AuthViewModel] ✅ Login successful")
+            // Use AuthEngine as single authority
+            try await authEngine.loginWithEmail(email: email, password: password)
+            SyncLogger.logAuth("Email login successful via AuthViewModel")
+            
+            guard let context = self.modelContext else {
+                 SyncLogger.logAuth("Login: Missing ModelContext", level: .error)
+                 return
+            }
             
             // Hand off to Session Manager
-            await AppSessionManager.shared.loginSuccess()
+            await AppSessionManager.shared.loginSuccess(modelContext: context)
             
             // Clear fields on success
             email = ""
             password = ""
-        } catch let error as SupabaseError {
-            print("[AuthViewModel] ❌ Login failed: \(error.localizedDescription)")
+        } catch let error as AuthEngineError {
+            SyncLogger.logAuth("Email login failed: \(error.localizedDescription)", level: .error)
             errorMessage = error.localizedDescription
         } catch {
-            print("[AuthViewModel] ❌ Login network error: \(error)")
-            errorMessage = "Network error"
+            let friendly = friendlyErrorMessage(from: error, fallback: "Unable to log in. Please try again.")
+            SyncLogger.logAuth("Email login failed: \(friendly)", level: .error)
+            errorMessage = friendly
         }
     }
 
@@ -246,24 +272,31 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
     private func performSignUp() async {
         defer { isLoading = false }
 
-        print("[AuthViewModel] 📝 Attempting signup...")
+        SyncLogger.logAuth("AuthViewModel: Starting email signup")
         
         do {
-            _ = try await supabase.signUp(email: email, password: password)
-            print("[AuthViewModel] ✅ Signup successful")
+            // Use AuthEngine as single authority
+            try await authEngine.signUpWithEmail(email: email, password: password)
+            SyncLogger.logAuth("Email signup successful via AuthViewModel")
+            
+            guard let context = self.modelContext else {
+                 SyncLogger.logAuth("Signup: Missing ModelContext", level: .error)
+                 return
+            }
             
             // Hand off to Session Manager - Explicit Onboarding
-            await AppSessionManager.shared.startOnboarding()
+            await AppSessionManager.shared.startOnboarding(modelContext: context)
             
             // Clear fields on success
             email = ""
             password = ""
-        } catch let error as SupabaseError {
-            print("[AuthViewModel] ❌ Signup failed: \(error.localizedDescription)")
+        } catch let error as AuthEngineError {
+            SyncLogger.logAuth("Email signup failed: \(error.localizedDescription)", level: .error)
             errorMessage = error.localizedDescription
         } catch {
-            print("[AuthViewModel] ❌ Signup network error: \(error)")
-            errorMessage = "Network error"
+            let friendly = friendlyErrorMessage(from: error, fallback: "Unable to create account. Please try again.")
+            SyncLogger.logAuth("Email signup failed: \(friendly)", level: .error)
+            errorMessage = friendly
         }
     }
 
@@ -272,12 +305,34 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
         defer { isLoading = false }
 
         do {
-            try await supabase.resetPassword(email: email)
+            try await SupabaseService.shared.resetPassword(email: email)
             errorMessage = nil
-        } catch let error as SupabaseError {
-            errorMessage = error.localizedDescription
         } catch {
-            errorMessage = "Network error"
+            errorMessage = friendlyErrorMessage(from: error, fallback: "Unable to send reset email. Please try again.")
         }
+    }
+
+    // MARK: - Error Handling
+
+    private func isValidEmail(_ email: String) -> Bool {
+        let emailRegex = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
+        return email.range(of: emailRegex, options: .regularExpression) != nil
+    }
+
+    private func friendlyErrorMessage(from error: Error, fallback: String) -> String {
+        if let supabaseError = error as? SupabaseError {
+            return supabaseError.localizedDescription
+        }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost:
+                return "No internet connection. Please try again."
+            case .timedOut:
+                return "The request timed out. Please try again."
+            default:
+                return "We couldn't reach the server. Please try again."
+            }
+        }
+        return fallback
     }
 }

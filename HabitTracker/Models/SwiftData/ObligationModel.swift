@@ -27,6 +27,10 @@ final class ObligationModel {
     /// When the obligation was completed
     var completedAt: Date?
 
+    /// Number of completions recorded (for multi-completion goals)
+    /// When completedCount >= goal.requiredCount, the obligation is considered complete
+    var completedCount: Int = 0
+
     /// When the status became immutable (locked)
     /// Set when status transitions to completed or missed
     var lockedAt: Date?
@@ -44,6 +48,7 @@ final class ObligationModel {
         scheduledAt: Date,
         status: String = "pending",
         completedAt: Date? = nil,
+        completedCount: Int = 0,
         lockedAt: Date? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
@@ -53,6 +58,7 @@ final class ObligationModel {
         self.scheduledAt = scheduledAt
         self.status = status
         self.completedAt = completedAt
+        self.completedCount = completedCount
         self.lockedAt = lockedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -124,6 +130,7 @@ final class ObligationModel {
 
         status = "missed"
         completedAt = nil
+        completedCount = 0
         lockedAt = Date()
         updatedAt = Date()
         return true
@@ -137,7 +144,47 @@ final class ObligationModel {
 
         status = "pending"
         completedAt = nil
+        completedCount = 0
         updatedAt = Date()
         return true
+    }
+
+    // MARK: - Multi-Completion Support
+
+    /// Increment completion count for multi-completion goals.
+    /// Returns the new completedCount.
+    /// - Parameter requiredCount: The goal's required count to determine if fully complete
+    @discardableResult
+    func incrementCompletion(requiredCount: Int) -> Int {
+        guard !isMissed else { return completedCount }
+
+        completedCount += 1
+        updatedAt = Date()
+
+        // Mark as completed when reaching the required count
+        if completedCount >= requiredCount {
+            status = "completed"
+            completedAt = Date()
+        }
+
+        return completedCount
+    }
+
+    /// Reset completion count (used when tapping a fully completed multi-completion obligation)
+    @discardableResult
+    func resetCompletion() -> Bool {
+        guard !isMissed else { return false }
+
+        completedCount = 0
+        status = "pending"
+        completedAt = nil
+        updatedAt = Date()
+        return true
+    }
+
+    /// Progress towards completion (0.0 to 1.0)
+    func completionProgress(requiredCount: Int) -> Double {
+        guard requiredCount > 0 else { return isCompleted ? 1.0 : 0.0 }
+        return min(1.0, Double(completedCount) / Double(requiredCount))
     }
 }

@@ -392,33 +392,43 @@ struct SplashScreen: View {
                 await Task.yield()
                 let totalDuration = totalAnimationDuration + settlingDuration + finalHoldDuration
                 try? await Task.sleep(nanoseconds: UInt64(totalDuration * 1_000_000_000))
-                
+
                 // PHASE 1: Hard freeze — stop all motion, lock visual state BEFORE fade
                 // The order here is critical: freeze state THEN set visual lock THEN set fading
+                // Use withTransaction to ensure these state changes happen atomically without animation
                 await MainActor.run {
-                    let elapsed = Date().timeIntervalSince(startTime)
-                    frozenWaveState = calculateWaveState(elapsed: elapsed, absoluteTime: Date().timeIntervalSinceReferenceDate)
-                    isVisuallyLocked = true  // FIRST: Lock waveState forever
-                    isFadingOut = true       // THEN: Signal fade can begin
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        let elapsed = Date().timeIntervalSince(startTime)
+                        frozenWaveState = calculateWaveState(elapsed: elapsed, absoluteTime: Date().timeIntervalSinceReferenceDate)
+                        isVisuallyLocked = true  // FIRST: Lock waveState forever
+                        isFadingOut = true       // THEN: Signal fade can begin
+                    }
                 }
-                
-                // Wait 2 frames for freeze to fully render
+
+                // Wait 2 frames for freeze to fully render (ensures GPU pipeline is flushed)
                 try? await Task.sleep(nanoseconds: 33_000_000) // ~2 frames at 60Hz
-                
+
                 // PHASE 2: Internal opacity fade — splash fades itself out
                 await MainActor.run {
                     withAnimation(.easeOut(duration: exitFadeDuration)) {
                         exitOpacity = 0
                     }
                 }
-                
+
                 // PHASE 3: Wait for fade to complete, then signal done
-                // Add small buffer to ensure animation is fully complete
-                try? await Task.sleep(nanoseconds: UInt64((exitFadeDuration + 0.05) * 1_000_000_000))
-                
-                // PHASE 4: Atomic completion — no animation wrapper
+                // Add buffer to ensure animation is fully complete before view removal
+                try? await Task.sleep(nanoseconds: UInt64((exitFadeDuration + 0.08) * 1_000_000_000))
+
+                // PHASE 4: Atomic completion — explicitly disable any implicit animations
+                // This is the final signal to the parent that splash can be removed
                 await MainActor.run {
-                    isFinished = true
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        isFinished = true
+                    }
                 }
             }
         }

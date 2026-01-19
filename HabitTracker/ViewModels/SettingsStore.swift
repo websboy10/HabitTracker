@@ -353,7 +353,7 @@ final class SettingsStore {
     
     private func syncToCloudDebounced() {
         // Only sync if cloud mode
-        guard StorageMode.current == .cloud else { return }
+        guard StorageMode.isCloud else { return }
         
         // Cancel any pending sync
         syncWorkItem?.cancel()

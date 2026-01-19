@@ -10,6 +10,9 @@ struct WeekOverviewCard: View {
     /// Monthly totals for header (entire month)
     let monthlyTotals: (completed: Int, total: Int)?
 
+    /// Month to display in the header
+    let monthDate: Date
+
     /// Which weeks have notes (1-4 indexed as 0-3)
     let weeksWithNotes: Set<Int>
 
@@ -34,6 +37,7 @@ struct WeekOverviewCard: View {
                     .frame(width: 160, height: 160)
                     .blur(radius: 60)
                     .offset(x: 100, y: -20)
+                    .allowsHitTesting(false)
 
                 VStack(spacing: AppSpacing.md) {
                     // Header
@@ -197,11 +201,12 @@ struct WeekOverviewCard: View {
     private var currentMonthYear: String {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMMM yyyy"
-        return formatter.string(from: Date())
+        return formatter.string(from: monthDate)
     }
 
     private var currentWeekOfMonth: Int {
         let calendar = Calendar.current
+        guard calendar.isDate(monthDate, equalTo: Date(), toGranularity: .month) else { return 0 }
         let day = calendar.component(.day, from: Date())
         return min(((day - 1) / 7) + 1, 4)
     }
@@ -241,6 +246,7 @@ private extension Array {
                 (completed: 0, total: 0, percentage: 0.0)
             ],
             monthlyTotals: (completed: 20, total: 28),
+            monthDate: Date(),
             weeksWithNotes: [1, 2]
         ) { weekNumber in
             print("Tapped week \(weekNumber)")

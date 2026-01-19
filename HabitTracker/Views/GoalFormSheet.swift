@@ -12,18 +12,35 @@ struct GoalFormSheet: View {
 
     // Form state
     @State private var title: String = ""
-    @State private var selectedCategoryId: UUID?
+    @State private var selectedCategoryName: String = "Health"
+    @State private var selectedCategoryColorHex: String = "D11A2A"
     @State private var recurrenceType: String = "daily"
     @State private var selectedWeekdays: Set<Int> = []
     @State private var scheduledTime: Date = Date()
     @State private var hasScheduledTime: Bool = false
+    @State private var notificationsEnabled: Bool = false
+    @State private var useCustomNotificationTime: Bool = false
+    @State private var notificationTime: Date = Date()
+    @State private var defaultNotificationTime: Date = Date()
     @State private var monthlyDayOfMonth: Int = 1
+    @State private var requiredCount: Int = 1
     @State private var status: String = "active"
     @State private var showRecurrenceOptions: Bool = true
     @State private var showDeleteConfirmation: Bool = false
+    @State private var showNotificationTimePicker: Bool = false
 
-    // Categories
-    @Query(sort: \CategoryModel.sortOrder) private var categories: [CategoryModel]
+    // Static category options (no longer a SwiftData model)
+    private static let categoryOptions: [(name: String, colorHex: String)] = [
+        ("Health", "D11A2A"),
+        ("Focus", "6366F1"),
+        ("Learning", "8B8B8B"),
+        ("Fitness", "10B981"),
+        ("Personal", "F59E0B"),
+        ("Finance", "6366F1"),
+        ("Household", "F59E0B"),
+        ("Family", "F43F5E"),
+        ("Social", "8B8B8B"),
+    ]
 
     @Namespace private var animation
     @FocusState private var isTextFieldFocused: Bool
@@ -51,6 +68,16 @@ struct GoalFormSheet: View {
                         // Scheduled Time (optional)
                         formSection("Time") {
                             timeSection
+                        }
+
+                        // Notifications
+                        formSection("Notifications") {
+                            notificationSection
+                        }
+
+                        // Daily Count (for multi-completion goals)
+                        formSection("Daily Count") {
+                            dailyCountSection
                         }
 
                         // Recurrence Toggle
@@ -92,24 +119,12 @@ struct GoalFormSheet: View {
                     Button("Save") { saveGoal() }
                         .fontWeight(.semibold)
                         .foregroundColor(AppColors.primary)
-                        .disabled(title.isEmpty || selectedCategoryId == nil)
+                        .disabled(title.isEmpty)
                 }
             }
             .toolbarBackground(.hidden, for: .navigationBar)
         }
         .onAppear {
-            if categories.isEmpty {
-                // Fallback seeding if needed
-                for (index, cat) in CategoryModel.defaults.enumerated() {
-                    let model = CategoryModel(
-                        name: cat.name,
-                        colorHex: cat.colorHex,
-                        isDefault: true,
-                        sortOrder: index
-                    )
-                    modelContext.insert(model)
-                }
-            }
             loadExistingGoal()
         }
     }
@@ -131,41 +146,43 @@ struct GoalFormSheet: View {
     private var categoryPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(categories) { category in
-                    categoryChip(category)
+                ForEach(Self.categoryOptions, id: \.name) { option in
+                    categoryChip(name: option.name, colorHex: option.colorHex)
                 }
             }
         }
     }
 
-    private func categoryChip(_ category: CategoryModel) -> some View {
-        let isSelected = selectedCategoryId == category.id
+    private func categoryChip(name: String, colorHex: String) -> some View {
+        let isSelected = selectedCategoryName == name
+        let color = Color(hex: UInt(colorHex, radix: 16) ?? 0xD11A2A)
 
         return Button {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                selectedCategoryId = category.id
+                selectedCategoryName = name
+                selectedCategoryColorHex = colorHex
             }
         } label: {
-            Text(category.name)
+            Text(name)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(isSelected ? .white : category.color)
+                .foregroundColor(isSelected ? .white : color)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .background(
                     ZStack {
                         if isSelected {
                             Capsule()
-                                .fill(category.color)
+                                .fill(color)
                                 .matchedGeometryEffect(id: "activeCategory", in: animation)
                         } else {
                             Capsule()
-                                .fill(category.color.opacity(0.1))
+                                .fill(color.opacity(0.1))
                         }
                     }
                 )
                 .overlay(
                     Capsule()
-                        .stroke(category.color.opacity(0.3), lineWidth: 1)
+                        .stroke(color.opacity(0.3), lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
@@ -190,6 +207,177 @@ struct GoalFormSheet: View {
             }
 
             Spacer()
+        }
+        .padding(16)
+        .background(Color.white.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    // MARK: - Notifications Section
+
+    private var notificationSection: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text("Enable Notifications")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(AppColors.textPrimary)
+
+                Spacer()
+
+                Toggle("", isOn: $notificationsEnabled)
+                    .tint(AppColors.primary)
+                    .labelsHidden()
+                    .onChange(of: notificationsEnabled) { _, newValue in
+                        if newValue {
+                            // When enabling notifications, show the time picker sheet
+                            showNotificationTimePicker = true
+                        }
+                    }
+            }
+
+            if notificationsEnabled {
+                Divider()
+                    .background(Color.white.opacity(0.08))
+
+                // Notification time button (opens wheel picker sheet)
+                Button { showNotificationTimePicker = true } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "clock")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(AppColors.primary)
+
+                                Text("Notification Time")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(AppColors.textPrimary.opacity(0.9))
+                            }
+
+                            Text("When to remind you")
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundColor(AppColors.textSecondary)
+                        }
+
+                        Spacer()
+
+                        HStack(spacing: 12) {
+                            Text(notificationTimeFormatted)
+                                .font(.system(size: 14, weight: .medium, design: .monospaced))
+                                .foregroundColor(AppColors.textPrimary)
+
+                            Image(systemName: "pencil")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(AppColors.textSecondary)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.white.opacity(0.05))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(Color.white.opacity(0.05), lineWidth: 1)
+                        )
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(16)
+        .background(Color.white.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .sheet(isPresented: $showNotificationTimePicker) {
+            notificationTimePickerSheet
+        }
+    }
+
+    // MARK: - Notification Time Picker Sheet
+
+    private var notificationTimePickerSheet: some View {
+        NavigationStack {
+            ZStack {
+                AppMaterials.moodGradient.ignoresSafeArea()
+
+                DatePicker(
+                    "Notification Time",
+                    selection: $notificationTime,
+                    displayedComponents: .hourAndMinute
+                )
+                .datePickerStyle(.wheel)
+                .labelsHidden()
+                .colorScheme(.dark)
+            }
+            .navigationTitle("Notification Time")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { showNotificationTimePicker = false }
+                        .foregroundColor(AppColors.primary)
+                }
+            }
+            .toolbarBackground(.hidden, for: .navigationBar)
+        }
+        .presentationDetents([.height(300)])
+    }
+
+    // MARK: - Daily Count Section
+
+    private var dailyCountSection: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text("Times per day")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(AppColors.textPrimary)
+
+                Spacer()
+
+                // Stepper-style count selector
+                HStack(spacing: 0) {
+                    Button {
+                        withAnimation(.spring(response: 0.2, dampingFraction: 0.7)) {
+                            requiredCount = max(1, requiredCount - 1)
+                        }
+                    } label: {
+                        Image(systemName: "minus")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(requiredCount > 1 ? AppColors.primary : AppColors.textMuted)
+                            .frame(width: 36, height: 36)
+                            .background(Color.white.opacity(0.05))
+                    }
+                    .disabled(requiredCount <= 1)
+
+                    Text("\(requiredCount)")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundColor(AppColors.textPrimary)
+                        .frame(width: 44, height: 36)
+                        .background(Color.white.opacity(0.08))
+                        .monospacedDigit()
+
+                    Button {
+                        withAnimation(.spring(response: 0.2, dampingFraction: 0.7)) {
+                            requiredCount = min(99, requiredCount + 1)
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(AppColors.primary)
+                            .frame(width: 36, height: 36)
+                            .background(Color.white.opacity(0.05))
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                )
+            }
+
+            // Helper text
+            if requiredCount > 1 {
+                Text("Complete this goal \(requiredCount) times each day")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(AppColors.textMuted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(16)
         .background(Color.white.opacity(0.05))
@@ -352,6 +540,12 @@ struct GoalFormSheet: View {
         }
     }
 
+    private var notificationTimeFormatted: String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: notificationTime)
+    }
+
     private var statusToggle: some View {
         HStack {
             Text(status == "active" ? "Active" : "Paused")
@@ -407,6 +601,10 @@ struct GoalFormSheet: View {
         guard let goal = editingGoal else { return }
         let goalId = goal.id
 
+        Task { @MainActor in
+            await NotificationEngine.shared.cancelTaskNotifications(forGoalId: goalId)
+        }
+
         SyncService.shared.recordLocalGoalDeletion(goalId)
         
         // Delete all obligations associated with this goal
@@ -432,10 +630,17 @@ struct GoalFormSheet: View {
 
     // MARK: - Actions
 
+    @MainActor
     private func loadExistingGoal() {
+        defaultNotificationTime = NotificationEngine.shared.defaultNotificationTime
+        notificationTime = defaultNotificationTime
+        notificationsEnabled = false
+        useCustomNotificationTime = false
+
         guard let goal = editingGoal else {
-            // Set default category
-            selectedCategoryId = categories.first?.id
+            // Set default category (first in static list)
+            selectedCategoryName = Self.categoryOptions.first?.name ?? "Health"
+            selectedCategoryColorHex = Self.categoryOptions.first?.colorHex ?? "D11A2A"
             recurrenceType = "daily"
             showRecurrenceOptions = true
             monthlyDayOfMonth = Calendar.current.component(.day, from: Date())
@@ -443,7 +648,8 @@ struct GoalFormSheet: View {
         }
 
         title = goal.title
-        selectedCategoryId = goal.categoryId
+        selectedCategoryName = goal.categoryName
+        selectedCategoryColorHex = goal.categoryColorHex
         recurrenceType = ["daily", "weekly", "monthly", "none"].contains(goal.recurrenceType)
             ? goal.recurrenceType
             : "daily"
@@ -452,30 +658,41 @@ struct GoalFormSheet: View {
             scheduledTime = time
             hasScheduledTime = true
         }
+        notificationsEnabled = goal.notificationsEnabled
+        if let goalNotificationTime = goal.notificationTime {
+            notificationTime = goalNotificationTime
+        } else {
+            notificationTime = defaultNotificationTime
+        }
+        // When notifications are enabled, always show time picker
+        useCustomNotificationTime = notificationsEnabled
         if let day = goal.monthlyDayOfMonth {
             monthlyDayOfMonth = day
         } else {
             monthlyDayOfMonth = Calendar.current.component(.day, from: goal.createdAt)
         }
+        requiredCount = max(1, goal.requiredCount)
         status = goal.status
         showRecurrenceOptions = recurrenceType != "none"
     }
 
     private func saveGoal() {
-        guard let categoryId = selectedCategoryId else { return }
-
         let obligationScheduler = ObligationScheduler(modelContext: modelContext)
         let calendar = Calendar.current
 
         if let goal = editingGoal {
             // Update existing goal
             goal.title = title
-            goal.categoryId = categoryId
+            goal.categoryName = selectedCategoryName
+            goal.categoryColorHex = selectedCategoryColorHex
             goal.recurrenceType = recurrenceType
             goal.weekdays = Array(selectedWeekdays)
             goal.scheduledTime = hasScheduledTime ? scheduledTime : nil
+            goal.notificationsEnabled = notificationsEnabled
+            goal.notificationTime = notificationsEnabled ? notificationTime : nil
             goal.customIntervalDays = nil
             goal.monthlyDayOfMonth = recurrenceType == "monthly" ? monthlyDayOfMonth : nil
+            goal.requiredCount = max(1, requiredCount)
             goal.status = status
             goal.updatedAt = Date()
 
@@ -486,6 +703,10 @@ struct GoalFormSheet: View {
 
             try? modelContext.save()
 
+            Task { @MainActor in
+                await NotificationEngine.shared.syncTaskNotifications(for: goal)
+            }
+
             // Sync to cloud
             Task {
                 await SyncService.shared.syncGoalUpdate(goal)
@@ -494,15 +715,23 @@ struct GoalFormSheet: View {
             // Create new goal
             let goal = GoalModel(
                 title: title,
-                categoryId: categoryId,
+                categoryName: selectedCategoryName,
+                categoryColorHex: selectedCategoryColorHex,
                 recurrenceType: recurrenceType,
                 weekdays: Array(selectedWeekdays),
                 scheduledTime: hasScheduledTime ? scheduledTime : nil,
+                notificationsEnabled: notificationsEnabled,
+                notificationTime: notificationsEnabled ? notificationTime : nil,
                 customIntervalDays: nil,
-                monthlyDayOfMonth: recurrenceType == "monthly" ? monthlyDayOfMonth : nil
+                monthlyDayOfMonth: recurrenceType == "monthly" ? monthlyDayOfMonth : nil,
+                requiredCount: max(1, requiredCount)
             )
             modelContext.insert(goal)
             try? modelContext.save()
+
+            Task { @MainActor in
+                await NotificationEngine.shared.syncTaskNotifications(for: goal)
+            }
 
             // BACKFILL: Generate obligations from max(createdAt, 12 months ago) to end of current month
             // This ensures stats are accurate from the moment the goal is created
@@ -515,10 +744,6 @@ struct GoalFormSheet: View {
             // Sync to cloud
             Task {
                 await SyncService.shared.syncGoalCreation(goal)
-                // Also sync the category if it's not yet synced
-                if let category = categories.first(where: { $0.id == categoryId }) {
-                    await SyncService.shared.syncCategoryCreation(category)
-                }
             }
         }
 

@@ -1,6 +1,11 @@
 import SwiftUI
 import SwiftData
 
+// MARK: - Int Identifiable for sheet(item:)
+extension Int: @retroactive Identifiable {
+    public var id: Int { self }
+}
+
 /// The main Home screen with scrollable dashboard.
 /// Uses obligation-based system for tracking.
 struct HomeView: View {
@@ -14,10 +19,13 @@ struct HomeView: View {
     @Query private var obligations: [ObligationModel]
     @Query private var goals: [GoalModel]
     @Query private var weeklyNotes: [WeeklyNoteModel]
+    
+    // Calendar service for busy day awareness (disabled - not in project)
+    // @StateObject private var calendarService = CalendarService.shared
 
     // Weekly note sheet state
-    @State private var showingWeeklyNote = false
-    @State private var selectedWeekIndex = 1
+    @State private var selectedWeekForNote: Int? = nil
+    @State private var selectedMonth = Date()
 
     var body: some View {
         let _ = obligations.count + goals.count
@@ -25,8 +33,8 @@ struct HomeView: View {
             // Fixed background
             AppMaterials.moodGradient
 
-            // Scrollable content
-            ScrollView(.vertical, showsIndicators: false) {
+            // Scrollable content with automatic scroll reset
+            ResetScrollView(viewName: "HomeView", showsIndicators: false) {
                 VStack(spacing: 0) {
                     // SECTION 1: Hero / Daily Dashboard
                     heroSection
@@ -53,14 +61,25 @@ struct HomeView: View {
             }
         }
         .onAppear {
+            NavigationLogger.shared.logViewAppear("HomeView")
             viewModel.configure(with: modelContext)
+            preloadNotesForSelectedMonth()
         }
-        .sheet(isPresented: $showingWeeklyNote) {
+        .onDisappear {
+            NavigationLogger.shared.logViewDisappear("HomeView")
+        }
+        .onChange(of: selectedMonth) { _, _ in
+            preloadNotesForSelectedMonth()
+        }
+        .sheet(item: $selectedWeekForNote) { weekIndex in
             WeeklyNoteSheet(
-                year: currentYear,
-                month: currentMonth,
-                weekIndex: selectedWeekIndex,
-                isPresented: $showingWeeklyNote
+                year: selectedYear,
+                month: selectedMonthIndex,
+                weekIndex: weekIndex,
+                isPresented: Binding(
+                    get: { selectedWeekForNote != nil },
+                    set: { if !$0 { selectedWeekForNote = nil } }
+                )
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.hidden)
@@ -70,18 +89,18 @@ struct HomeView: View {
 
     // MARK: - Date Helpers
 
-    private var currentYear: Int {
-        Calendar.current.component(.year, from: Date())
+    private var selectedYear: Int {
+        Calendar.current.component(.year, from: selectedMonth)
     }
 
-    private var currentMonth: Int {
-        Calendar.current.component(.month, from: Date())
+    private var selectedMonthIndex: Int {
+        Calendar.current.component(.month, from: selectedMonth)
     }
 
     /// Set of week numbers (1-4) that have notes for current month
     private var weeksWithNotes: Set<Int> {
-        let year = currentYear
-        let month = currentMonth
+        let year = selectedYear
+        let month = selectedMonthIndex
         var result = Set<Int>()
         for note in weeklyNotes {
             if note.year == year && note.month == month && !note.text.isEmpty {
@@ -101,7 +120,37 @@ struct HomeView: View {
             )
 
             statsBar
+            
+            // Calendar awareness indicator (disabled - CalendarService not in project)
+            // if calendarService.isAuthorized {
+            //     let todayEvents = calendarService.todaysEvents()
+            //     if !todayEvents.isEmpty {
+            //         calendarIndicator(eventCount: todayEvents.count)
+            //     }
+            // }
         }
+    }
+    
+    private func calendarIndicator(eventCount: Int) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "calendar")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(AppColors.textMuted)
+            
+            Text("\(eventCount) event\(eventCount == 1 ? "" : "s") today")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(AppColors.textSecondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.05))
+        )
+        .overlay(
+            Capsule()
+                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+        )
     }
 
     private var statsBar: some View {
@@ -163,8 +212,6 @@ struct HomeView: View {
                         ObligationCard(
                             obligation: item.obligation,
                             goal: item.goal,
-                            category: item.category
-                            ,
                             canToggle: viewModel.canToggleObligation(item.obligation)
                         ) {
                             withAnimation(AppAnimation.standard) {
@@ -204,15 +251,15 @@ struct HomeView: View {
 
     private var thisWeekSection: some View {
         VStack(alignment: .leading, spacing: AppSpacing.md) {
-            sectionHeader("This Month")
+            monthSelectorHeader
 
             WeekOverviewCard(
-                weeklyProgress: viewModel.monthlyWeekProgress,
-                monthlyTotals: viewModel.monthlyTotals,
+                weeklyProgress: viewModel.monthlyWeekProgress(for: selectedMonth),
+                monthlyTotals: viewModel.monthlyTotals(for: selectedMonth),
+                monthDate: selectedMonth,
                 weeksWithNotes: weeksWithNotes
             ) { weekIndex in
-                selectedWeekIndex = weekIndex
-                showingWeeklyNote = true
+                selectedWeekForNote = weekIndex
             }
         }
     }
@@ -226,6 +273,82 @@ struct HomeView: View {
             .textCase(.uppercase)
             .tracking(2)
             .padding(.leading, 4)
+    }
+
+    private var monthSelectorHeader: some View {
+        HStack {
+            Text("THIS MONTH")
+                .font(AppTypography.caption)
+                .textCase(.uppercase)
+                .tracking(1.2)
+                .foregroundColor(AppColors.textSecondary)
+
+            Spacer()
+
+            Menu {
+                ForEach(0..<12, id: \.self) { monthsAgo in
+                    let monthDate = Calendar.current.date(byAdding: .month, value: -monthsAgo, to: Date()) ?? Date()
+                    let formatter = DateFormatter()
+                    let _ = (formatter.dateFormat = "MMMM yyyy")
+
+                    Button(action: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            selectedMonth = monthDate
+                        }
+                    }) {
+                        HStack {
+                            Text(formatter.string(from: monthDate))
+                            if Calendar.current.isDate(monthDate, equalTo: selectedMonth, toGranularity: .month) {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(monthLabel.uppercased())
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(AppColors.primary)
+                        .tracking(1)
+
+                    Text(String(selectedYear))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(AppColors.textMuted)
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(AppColors.textMuted)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(AppColors.primary.opacity(0.12))
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(AppColors.primary.opacity(0.3), lineWidth: 1)
+                )
+            }
+        }
+    }
+
+    private var monthLabel: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM"
+        return formatter.string(from: selectedMonth)
+    }
+
+    private func preloadNotesForSelectedMonth() {
+        let year = selectedYear
+        let month = selectedMonthIndex
+        Task {
+            await WeeklyNoteService.shared.preloadNotes(
+                year: year,
+                month: month,
+                modelContext: modelContext
+            )
+        }
     }
 
     // MARK: - Bottom Navigation
@@ -253,7 +376,6 @@ struct ObligationCard: View {
 
     let obligation: ObligationModel
     let goal: GoalModel
-    let category: CategoryModel?
     let canToggle: Bool
     let onTap: () -> Void
 
@@ -273,13 +395,14 @@ struct ObligationCard: View {
                         .foregroundColor(statusTextColor)
                         .strikethrough(obligation.isCompleted, color: AppColors.textPrimary.opacity(0.3))
                         .tracking(0.3)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     HStack(spacing: 6) {
-                        if let category = category {
-                            Text(category.name)
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundColor(category.color.opacity(0.8))
-                        }
+                        Text(goal.categoryName)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(goal.categoryColor.opacity(0.8))
 
                         Text(statusLabel)
                             .font(AppTypography.caption)
@@ -296,7 +419,12 @@ struct ObligationCard: View {
 
                 Spacer()
 
-                if obligation.isPending {
+                // Multi-completion progress indicator (only shown when requiredCount > 1)
+                if goal.hasMultipleCompletions {
+                    multiCompletionBadge
+                }
+
+                if obligation.isPending && !goal.hasMultipleCompletions {
                     RoundedRectangle(cornerRadius: 2, style: .continuous)
                         .fill(AppColors.trackBackground)
                         .frame(width: 4, height: 32)
@@ -315,6 +443,12 @@ struct ObligationCard: View {
     private var statusLabel: String {
         if obligation.isCompleted { return "Completed" }
         if obligation.isMissed { return "Missed" }
+
+        // For multi-completion goals with partial progress, show count
+        if goal.hasMultipleCompletions && obligation.completedCount > 0 {
+            return "\(obligation.completedCount)/\(goal.requiredCount)"
+        }
+
         return "Pending"
     }
 
@@ -393,6 +527,70 @@ struct ObligationCard: View {
                 .fill(Color.white.opacity(0.2))
                 .frame(width: 8, height: 8)
         }
+    }
+
+    // MARK: - Multi-Completion Badge
+
+    /// Badge showing progress for multi-completion goals (e.g., "2/5")
+    private var multiCompletionBadge: some View {
+        let progress = obligation.completionProgress(requiredCount: goal.requiredCount)
+        let isPartiallyComplete = obligation.completedCount > 0 && !obligation.isCompleted
+
+        return HStack(spacing: 4) {
+            // Progress ring
+            ZStack {
+                Circle()
+                    .stroke(AppColors.trackBackground, lineWidth: 3)
+                    .frame(width: 28, height: 28)
+
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(
+                        isPartiallyComplete ? AppColors.primary.opacity(0.8) : AppColors.primary,
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                    )
+                    .frame(width: 28, height: 28)
+                    .rotationEffect(.degrees(-90))
+
+                if obligation.isCompleted {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(AppColors.primary)
+                }
+            }
+
+            // Count label
+            Text("\(obligation.completedCount)/\(goal.requiredCount)")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundColor(badgeTextColor)
+                .monospacedDigit()
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(badgeBackground)
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .stroke(badgeBorderColor, lineWidth: 1)
+        )
+    }
+
+    private var badgeTextColor: Color {
+        if obligation.isCompleted { return AppColors.primary }
+        if obligation.completedCount > 0 { return AppColors.textPrimary }
+        return AppColors.textMuted
+    }
+
+    private var badgeBackground: Color {
+        if obligation.isCompleted { return AppColors.primary.opacity(0.15) }
+        if obligation.completedCount > 0 { return Color.white.opacity(0.08) }
+        return Color.white.opacity(0.04)
+    }
+
+    private var badgeBorderColor: Color {
+        if obligation.isCompleted { return AppColors.primary.opacity(0.3) }
+        if obligation.completedCount > 0 { return AppColors.primary.opacity(0.2) }
+        return Color.white.opacity(0.08)
     }
 
     private var cardBackground: some View {

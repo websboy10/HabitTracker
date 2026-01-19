@@ -5,6 +5,9 @@ import SwiftData
 @main
 struct HabitTrackerApp: App {
 
+    /// App delegate for orientation locking and system events
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     /// Central Session Manager
     @StateObject private var session = AppSessionManager.shared
 
@@ -15,7 +18,6 @@ struct HabitTrackerApp: App {
         do {
             let schema = Schema([
                 GoalModel.self,
-                CategoryModel.self,
                 ObligationModel.self,
                 WeeklyNoteModel.self
             ])
@@ -27,39 +29,42 @@ struct HabitTrackerApp: App {
                 for: schema,
                 configurations: [modelConfiguration]
             )
-            
-            // Seed default categories on first launch
-            seedDefaultCategoriesIfNeeded()
-            
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
         }
     }
     
-    /// Controls splash screen visibility
+    /// Controls when main content is rendered (happens BEFORE splash removal)
     @State private var splashFinished = false
-    
+
+    /// Controls when splash view is removed from hierarchy (happens AFTER main content appears)
+    @State private var splashRemoved = false
+
     var body: some Scene {
         WindowGroup {
             ZStack {
-                // Background layer
+                // Background layer - always present, prevents any flash-to-white
                 Color.black.ignoresSafeArea()
-                
+
                 // Main State Switcher
+                // Renders main content as soon as splash signals finish (while splash is still at opacity 0)
+                // This ensures content is ready BEFORE splash is removed from hierarchy
                 Group {
-                    switch session.state {
-                    case .unauthenticated:
-                        AuthView()
-                            .transition(.opacity)
-                    case .onboarding:
-                        OnboardingContainerView()
-                            .transition(.opacity)
-                    case .running, .synchronizing:
-                        ContentView()
-                            .transition(.opacity)
-                    default:
-                        // startup, authenticating, restoringIdentity, tearingDown
-                        // Kept explicitly black/empty behind splash
+                    if splashFinished {
+                        switch session.state {
+                        case .unauthenticated:
+                            AuthView()
+                        case .onboarding:
+                            OnboardingContainerView()
+                        case .running, .synchronizing:
+                            ContentView()
+                        default:
+                            // startup, authenticating, restoringIdentity, tearingDown
+                            // Kept explicitly black/empty behind splash
+                            Color.black.ignoresSafeArea()
+                        }
+                    } else {
+                        // Placeholder during splash - pure black, no content
                         Color.black.ignoresSafeArea()
                     }
                 }
@@ -67,16 +72,17 @@ struct HabitTrackerApp: App {
                 .zIndex(1)
 
                 // Splash screen (Overlay)
-                if !splashFinished {
+                // Removed via splashRemoved which is set AFTER main content is rendered
+                if !splashRemoved {
                     SplashScreen(isFinished: $splashFinished)
-                        .transition(.opacity)
                         .zIndex(100)
+                        .allowsHitTesting(false)  // Disable interaction during fade-out
                 }
-                
+
                 // Loading / Blocking overlay for sensitive states
                 if session.state == .restoringIdentity || session.state == .authenticating {
                     // Optional: Add a spinner here if splash is already gone
-                    if splashFinished {
+                    if splashRemoved {
                         ZStack {
                             Color.black.opacity(0.8).ignoresSafeArea()
                             ProgressView()
@@ -87,12 +93,24 @@ struct HabitTrackerApp: App {
                 }
             }
             .preferredColorScheme(.dark)
-            .animation(.easeInOut(duration: 0.5), value: session.state)
+            // Only animate state changes AFTER splash is fully removed
+            .animation(splashRemoved ? .easeInOut(duration: 0.5) : nil, value: session.state)
+            // Two-phase transition: first reveal content, then remove splash
+            .onChange(of: splashFinished) { _, finished in
+                if finished {
+                    // Phase 1: Main content is now rendered (splash is at opacity 0, still in hierarchy)
+                    // Wait one frame for main content to fully render, then remove splash
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        // Phase 2: Remove splash from hierarchy (main content is already visible)
+                        splashRemoved = true
+                    }
+                }
+            }
             .task {
                 // Initialize Session Manager Logic
-                await session.initialize()
+                await session.initialize(modelContext: modelContainer.mainContext)
             }
-            .onChange(of: session.state) { newState in
+            .onChange(of: session.state) { _, newState in
                 if newState == .synchronizing {
                     // Trigger Data Sync Phase
                     Task {
@@ -109,38 +127,20 @@ struct HabitTrackerApp: App {
                             )
                         }
                         
-                        // Signal manager that we are done
+                        // Signal manager that we are done - pass sync result
+                        let syncSuccess = SyncService.shared.lastSyncSucceeded
                         await MainActor.run {
-                            session.contentSyncCompleted()
+                            session.contentSyncCompleted(success: syncSuccess)
                         }
+                    }
+                }
+                if newState == .running {
+                    Task { @MainActor in
+                        await NotificationEngine.shared.syncAllNotifications(modelContext: modelContainer.mainContext)
                     }
                 }
             }
         }
         .modelContainer(modelContainer)
-    }
-    
-    /// Seeds default categories if none exist
-    private func seedDefaultCategoriesIfNeeded() {
-        let context = modelContainer.mainContext
-        
-        // Check if categories already exist
-        let descriptor = FetchDescriptor<CategoryModel>()
-        let existingCount = (try? context.fetchCount(descriptor)) ?? 0
-        
-        guard existingCount == 0 else { return }
-        
-        // Insert default categories
-        for (index, category) in CategoryModel.defaults.enumerated() {
-            let model = CategoryModel(
-                name: category.name,
-                colorHex: category.colorHex,
-                isDefault: true,
-                sortOrder: index
-            )
-            context.insert(model)
-        }
-        
-        try? context.save()
     }
 }

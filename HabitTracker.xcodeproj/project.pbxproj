@@ -17,30 +17,21 @@
 		1A00000F286D400000000008 /* AppComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000010286D400000000008 /* AppComponents.swift */; };
 		1A000011286D400000000009 /* GlassCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000012286D400000000009 /* GlassCard.swift */; };
 		1A000013286D40000000000A /* ProgressRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000014286D40000000000A /* ProgressRing.swift */; };
-		1A000015286D40000000000B /* StatCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000016286D40000000000B /* StatCard.swift */; };
 		1A000017286D40000000000C /* TabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000018286D40000000000C /* TabBar.swift */; };
 		1A000019286D40000000000D /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00001A286D40000000000D /* HomeView.swift */; };
 		1A00001B286D40000000000E /* GoalsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00001C286D40000000000E /* GoalsView.swift */; };
 		1A00001D286D40000000000F /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00001E286D40000000000F /* SettingsView.swift */; };
 		1A00001F286D400000000010 /* HomeViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000020286D400000000010 /* HomeViewModel.swift */; };
 		1A00001F286D400000000011 /* SplashScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000021286D400000000012 /* SplashScreen.swift */; };
-		1A000035286D400000000025 /* HabitTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000036286D400000000025 /* HabitTask.swift */; };
-		1A000037286D400000000026 /* TaskCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000038286D400000000026 /* TaskCard.swift */; };
-		1A00003B286D400000000028 /* NextWeekCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00003C286D400000000028 /* NextWeekCard.swift */; };
-		1A00003D286D400000000029 /* MonthCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00003E286D400000000029 /* MonthCard.swift */; };
 		1A000040286D40000000002B /* Goal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000041286D40000000002B /* Goal.swift */; };
 		1A000042286D40000000002C /* GoalsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000043286D40000000002C /* GoalsViewModel.swift */; };
-		1A000044286D40000000002D /* GoalCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000045286D40000000002D /* GoalCard.swift */; };
-		1A000046286D40000000002E /* YearlyGoalCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000047286D40000000002E /* YearlyGoalCard.swift */; };
 		1A000048286D40000000002F /* GoalTabPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000049286D40000000002F /* GoalTabPicker.swift */; };
 		1A00004A286D400000000030 /* GoalModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00004B286D400000000030 /* GoalModel.swift */; };
-		1A00004C286D400000000031 /* CategoryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00004D286D400000000031 /* CategoryModel.swift */; };
 		1A000054286D400000000035 /* ProgressCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000055286D400000000035 /* ProgressCalculator.swift */; };
 		1A000056286D400000000036 /* GoalFormSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000057286D400000000036 /* GoalFormSheet.swift */; };
 		1A000058286D400000000039 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000059286D400000000039 /* SettingsStore.swift */; };
 		1A00005A286D40000000003A /* SettingsComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00005B286D40000000003A /* SettingsComponents.swift */; };
 		1A00005C286D40000000003B /* HapticManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00005D286D40000000003B /* HapticManager.swift */; };
-		1A00005E286D40000000003C /* SwipeableContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00005F286D40000000003D /* SwipeableContainer.swift */; };
 		1A000060286D40000000003E /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000061286D40000000003F /* AuthView.swift */; };
 		1A000062286D400000000040 /* AuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000063286D400000000041 /* AuthViewModel.swift */; };
 		1A000064286D400000000042 /* OnboardingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000065286D400000000043 /* OnboardingViewModel.swift */; };
@@ -61,7 +52,32 @@
 		1A000085286D400000000065 /* WeeklyNoteModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000084286D400000000064 /* WeeklyNoteModel.swift */; };
 		1A000087286D400000000067 /* WeeklyNoteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000086286D400000000066 /* WeeklyNoteSheet.swift */; };
 		1A000089286D400000000069 /* WeekOverviewCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000088286D400000000068 /* WeekOverviewCard.swift */; };
+		1A0000A0286D400000000070 /* NotificationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000A1286D400000000071 /* NotificationEngine.swift */; };
+		1A0000B0286D400000000080 /* AuthEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000B1286D400000000081 /* AuthEngine.swift */; };
+		1A0000B2286D400000000082 /* StorageMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000B3286D400000000083 /* StorageMode.swift */; };
+		1A0000B4286D400000000084 /* SyncLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000B5286D400000000085 /* SyncLogger.swift */; };
+		1A0000B6286D400000000086 /* MutationQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000B7286D400000000087 /* MutationQueue.swift */; };
+		1A0000B8286D400000000088 /* DataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000B9286D400000000089 /* DataService.swift */; };
+		1A0000BA286D40000000008A /* StorageModeSwitcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000BB286D40000000008B /* StorageModeSwitcher.swift */; };
+		1A0000BC286D40000000008C /* RuntimeGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000BD286D40000000008D /* RuntimeGuard.swift */; };
+		1A0000BE286D40000000008E /* NavigationLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000BF286D40000000008F /* NavigationLogger.swift */; };
+		1A0000C0286D400000000090 /* CalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000C1286D400000000091 /* CalendarService.swift */; };
+		1A0000C2286D400000000092 /* ResetScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000C3286D400000000093 /* ResetScrollView.swift */; };
+		1A0000C4286D400000000094 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000C5286D400000000095 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		2E5684C32F1C1FE3000A33E5 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		1A000002286D400000000001 /* HabitTrackerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitTrackerApp.swift; sourceTree = "<group>"; };
@@ -74,7 +90,6 @@
 		1A000010286D400000000008 /* AppComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppComponents.swift; sourceTree = "<group>"; };
 		1A000012286D400000000009 /* GlassCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassCard.swift; sourceTree = "<group>"; };
 		1A000014286D40000000000A /* ProgressRing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressRing.swift; sourceTree = "<group>"; };
-		1A000016286D40000000000B /* StatCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatCard.swift; sourceTree = "<group>"; };
 		1A000018286D40000000000C /* TabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBar.swift; sourceTree = "<group>"; };
 		1A00001A286D40000000000D /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		1A00001C286D40000000000E /* GoalsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalsView.swift; sourceTree = "<group>"; };
@@ -82,23 +97,15 @@
 		1A000020286D400000000010 /* HomeViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeViewModel.swift; sourceTree = "<group>"; };
 		1A000021286D400000000011 /* HabitTracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HabitTracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A000021286D400000000012 /* SplashScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashScreen.swift; sourceTree = "<group>"; };
-		1A000036286D400000000025 /* HabitTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitTask.swift; sourceTree = "<group>"; };
-		1A000038286D400000000026 /* TaskCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskCard.swift; sourceTree = "<group>"; };
-		1A00003C286D400000000028 /* NextWeekCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextWeekCard.swift; sourceTree = "<group>"; };
-		1A00003E286D400000000029 /* MonthCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonthCard.swift; sourceTree = "<group>"; };
 		1A000041286D40000000002B /* Goal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Goal.swift; sourceTree = "<group>"; };
 		1A000043286D40000000002C /* GoalsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalsViewModel.swift; sourceTree = "<group>"; };
-		1A000045286D40000000002D /* GoalCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalCard.swift; sourceTree = "<group>"; };
-		1A000047286D40000000002E /* YearlyGoalCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YearlyGoalCard.swift; sourceTree = "<group>"; };
 		1A000049286D40000000002F /* GoalTabPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalTabPicker.swift; sourceTree = "<group>"; };
 		1A00004B286D400000000030 /* GoalModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalModel.swift; sourceTree = "<group>"; };
-		1A00004D286D400000000031 /* CategoryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryModel.swift; sourceTree = "<group>"; };
 		1A000055286D400000000035 /* ProgressCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressCalculator.swift; sourceTree = "<group>"; };
 		1A000057286D400000000036 /* GoalFormSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalFormSheet.swift; sourceTree = "<group>"; };
 		1A000059286D400000000039 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
 		1A00005B286D40000000003A /* SettingsComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsComponents.swift; sourceTree = "<group>"; };
 		1A00005D286D40000000003B /* HapticManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticManager.swift; sourceTree = "<group>"; };
-		1A00005F286D40000000003D /* SwipeableContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwipeableContainer.swift; sourceTree = "<group>"; };
 		1A000061286D40000000003F /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
 		1A000063286D400000000041 /* AuthViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthViewModel.swift; sourceTree = "<group>"; };
 		1A000065286D400000000043 /* OnboardingViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingViewModel.swift; sourceTree = "<group>"; };
@@ -119,8 +126,19 @@
 		1A000084286D400000000064 /* WeeklyNoteModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyNoteModel.swift; sourceTree = "<group>"; };
 		1A000086286D400000000066 /* WeeklyNoteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyNoteSheet.swift; sourceTree = "<group>"; };
 		1A000088286D400000000068 /* WeekOverviewCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekOverviewCard.swift; sourceTree = "<group>"; };
-		2EE2F7C22F10244700BE4BCF /* HabitTrackerRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HabitTrackerRelease.entitlements; sourceTree = "<group>"; };
-		2EE2F7C32F12E6E600BE4BCF /* HabitTracker.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HabitTracker.entitlements; sourceTree = "<group>"; };
+		1A0000A1286D400000000071 /* NotificationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationEngine.swift; sourceTree = "<group>"; };
+		1A0000B1286D400000000081 /* AuthEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthEngine.swift; sourceTree = "<group>"; };
+		1A0000B3286D400000000083 /* StorageMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageMode.swift; sourceTree = "<group>"; };
+		1A0000B5286D400000000085 /* SyncLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncLogger.swift; sourceTree = "<group>"; };
+		1A0000B7286D400000000087 /* MutationQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MutationQueue.swift; sourceTree = "<group>"; };
+		1A0000B9286D400000000089 /* DataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataService.swift; sourceTree = "<group>"; };
+		1A0000BB286D40000000008B /* StorageModeSwitcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageModeSwitcher.swift; sourceTree = "<group>"; };
+		1A0000BD286D40000000008D /* RuntimeGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeGuard.swift; sourceTree = "<group>"; };
+		1A0000BF286D40000000008F /* NavigationLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationLogger.swift; sourceTree = "<group>"; };
+		1A0000C1286D400000000091 /* CalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarService.swift; sourceTree = "<group>"; };
+		1A0000C3286D400000000093 /* ResetScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResetScrollView.swift; sourceTree = "<group>"; };
+		1A0000C5286D400000000095 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		2E5684B22F1C1FE1000A33E5 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -138,6 +156,7 @@
 			isa = PBXGroup;
 			children = (
 				1A000024286D400000000014 /* HabitTracker */,
+				2E5684AF2F1C1FE1000A33E5 /* Frameworks */,
 				1A000025286D400000000015 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -145,8 +164,6 @@
 		1A000024286D400000000014 /* HabitTracker */ = {
 			isa = PBXGroup;
 			children = (
-				2EE2F7C32F12E6E600BE4BCF /* HabitTracker.entitlements */,
-				2EE2F7C22F10244700BE4BCF /* HabitTrackerRelease.entitlements */,
 				1A000026286D400000000016 /* App */,
 				1A000027286D400000000017 /* DesignSystem */,
 				1A000028286D400000000018 /* Components */,
@@ -172,6 +189,7 @@
 			isa = PBXGroup;
 			children = (
 				1A000002286D400000000001 /* HabitTrackerApp.swift */,
+				1A0000C5286D400000000095 /* AppDelegate.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -193,18 +211,12 @@
 			children = (
 				1A000012286D400000000009 /* GlassCard.swift */,
 				1A000014286D40000000000A /* ProgressRing.swift */,
-				1A000016286D40000000000B /* StatCard.swift */,
 				1A000018286D40000000000C /* TabBar.swift */,
-				1A000038286D400000000026 /* TaskCard.swift */,
-				1A00003C286D400000000028 /* NextWeekCard.swift */,
-				1A00003E286D400000000029 /* MonthCard.swift */,
-				1A000045286D40000000002D /* GoalCard.swift */,
-				1A000047286D40000000002E /* YearlyGoalCard.swift */,
 				1A000049286D40000000002F /* GoalTabPicker.swift */,
 				1A00005B286D40000000003A /* SettingsComponents.swift */,
-				1A00005F286D40000000003D /* SwipeableContainer.swift */,
 				1A000086286D400000000066 /* WeeklyNoteSheet.swift */,
 				1A000088286D400000000068 /* WeekOverviewCard.swift */,
+				1A0000C3286D400000000093 /* ResetScrollView.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -239,7 +251,6 @@
 		1A00003F286D40000000002A /* Models */ = {
 			isa = PBXGroup;
 			children = (
-				1A000036286D400000000025 /* HabitTask.swift */,
 				1A000041286D40000000002B /* Goal.swift */,
 				1A000059286D400000000038 /* SwiftData */,
 			);
@@ -252,6 +263,7 @@
 				1A000055286D400000000035 /* ProgressCalculator.swift */,
 				1A000075286D400000000054 /* StatsCalculator.swift */,
 				1A00005D286D40000000003B /* HapticManager.swift */,
+				1A0000A1286D400000000071 /* NotificationEngine.swift */,
 				1A00006F286D40000000004E /* SupabaseService.swift */,
 				1A000077286D400000000056 /* ObligationScheduler.swift */,
 				1A000071286D400000000050 /* SyncService.swift */,
@@ -259,6 +271,15 @@
 				1A00007D286D40000000005C /* DeadlineEngine.swift */,
 				1A000080286D400000000060 /* DeadlineProcessor.swift */,
 				1A000082286D400000000062 /* WeeklyNoteService.swift */,
+				1A0000B1286D400000000081 /* AuthEngine.swift */,
+				1A0000B3286D400000000083 /* StorageMode.swift */,
+				1A0000B5286D400000000085 /* SyncLogger.swift */,
+				1A0000B7286D400000000087 /* MutationQueue.swift */,
+				1A0000B9286D400000000089 /* DataService.swift */,
+				1A0000BB286D40000000008B /* StorageModeSwitcher.swift */,
+				1A0000BD286D40000000008D /* RuntimeGuard.swift */,
+				1A0000BF286D40000000008F /* NavigationLogger.swift */,
+				1A0000C1286D400000000091 /* CalendarService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -267,7 +288,6 @@
 			isa = PBXGroup;
 			children = (
 				1A00004B286D400000000030 /* GoalModel.swift */,
-				1A00004D286D400000000031 /* CategoryModel.swift */,
 				1A000076286D400000000055 /* ObligationModel.swift */,
 				1A000084286D400000000064 /* WeeklyNoteModel.swift */,
 			);
@@ -285,6 +305,14 @@
 			path = Onboarding;
 			sourceTree = "<group>";
 		};
+		2E5684AF2F1C1FE1000A33E5 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				2E5684B22F1C1FE1000A33E5 /* SwiftUI.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -295,6 +323,7 @@
 				1A00002D286D40000000001D /* Sources */,
 				1A000022286D400000000012 /* Frameworks */,
 				1A00002E286D40000000001E /* Resources */,
+				2E5684C32F1C1FE3000A33E5 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
@@ -312,7 +341,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1500;
+				LastSwiftUpdateCheck = 2600;
 				LastUpgradeCheck = 1500;
 				TargetAttributes = {
 					1A00002B286D40000000001B = {
@@ -363,30 +392,22 @@
 				1A00000F286D400000000008 /* AppComponents.swift in Sources */,
 				1A000011286D400000000009 /* GlassCard.swift in Sources */,
 				1A000013286D40000000000A /* ProgressRing.swift in Sources */,
-				1A000015286D40000000000B /* StatCard.swift in Sources */,
 				1A000017286D40000000000C /* TabBar.swift in Sources */,
 				1A000019286D40000000000D /* HomeView.swift in Sources */,
 				1A00001B286D40000000000E /* GoalsView.swift in Sources */,
 				1A00001D286D40000000000F /* SettingsView.swift in Sources */,
 				1A00001F286D400000000010 /* HomeViewModel.swift in Sources */,
-				1A000035286D400000000025 /* HabitTask.swift in Sources */,
-				1A000037286D400000000026 /* TaskCard.swift in Sources */,
-				1A00003B286D400000000028 /* NextWeekCard.swift in Sources */,
-				1A00003D286D400000000029 /* MonthCard.swift in Sources */,
 				1A000040286D40000000002B /* Goal.swift in Sources */,
 				1A000042286D40000000002C /* GoalsViewModel.swift in Sources */,
-				1A000044286D40000000002D /* GoalCard.swift in Sources */,
-				1A000046286D40000000002E /* YearlyGoalCard.swift in Sources */,
 				1A000048286D40000000002F /* GoalTabPicker.swift in Sources */,
 				1A00004A286D400000000030 /* GoalModel.swift in Sources */,
-				1A00004C286D400000000031 /* CategoryModel.swift in Sources */,
 				1A000054286D400000000035 /* ProgressCalculator.swift in Sources */,
 				1A000056286D400000000036 /* GoalFormSheet.swift in Sources */,
 				1A000058286D400000000039 /* SettingsStore.swift in Sources */,
 				1A00005A286D40000000003A /* SettingsComponents.swift in Sources */,
 				1A00005C286D40000000003B /* HapticManager.swift in Sources */,
+				1A0000A0286D400000000070 /* NotificationEngine.swift in Sources */,
 				1A00001F286D400000000011 /* SplashScreen.swift in Sources */,
-				1A00005E286D40000000003C /* SwipeableContainer.swift in Sources */,
 				1A000060286D40000000003E /* AuthView.swift in Sources */,
 				1A000062286D400000000040 /* AuthViewModel.swift in Sources */,
 				1A000064286D400000000042 /* OnboardingViewModel.swift in Sources */,
@@ -407,6 +428,17 @@
 				1A000085286D400000000065 /* WeeklyNoteModel.swift in Sources */,
 				1A000087286D400000000067 /* WeeklyNoteSheet.swift in Sources */,
 				1A000089286D400000000069 /* WeekOverviewCard.swift in Sources */,
+				1A0000B0286D400000000080 /* AuthEngine.swift in Sources */,
+				1A0000B2286D400000000082 /* StorageMode.swift in Sources */,
+				1A0000B4286D400000000084 /* SyncLogger.swift in Sources */,
+				1A0000B6286D400000000086 /* MutationQueue.swift in Sources */,
+				1A0000B8286D400000000088 /* DataService.swift in Sources */,
+				1A0000BA286D40000000008A /* StorageModeSwitcher.swift in Sources */,
+				1A0000BC286D40000000008C /* RuntimeGuard.swift in Sources */,
+				1A0000BE286D40000000008E /* NavigationLogger.swift in Sources */,
+				1A0000C0286D400000000090 /* CalendarService.swift in Sources */,
+				1A0000C2286D400000000092 /* ResetScrollView.swift in Sources */,
+				1A0000C4286D400000000094 /* AppDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -544,11 +576,13 @@
 				DEVELOPMENT_TEAM = 5LUS6FWD8Q;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = FORGE;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -575,11 +609,13 @@
 				DEVELOPMENT_TEAM = 5LUS6FWD8Q;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = FORGE;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

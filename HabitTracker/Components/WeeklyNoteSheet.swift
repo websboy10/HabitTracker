@@ -195,26 +195,27 @@ struct WeeklyNoteSheet: View {
             // Editor card
             GlassCard {
                 ZStack(alignment: .topLeading) {
-                    // Placeholder
+                    // Placeholder - aligned with TextEditor's internal padding (8pt top, 5pt leading)
                     if noteText.isEmpty && !isLoading {
                         Text("Reflect on your week...")
                             .font(.system(size: 15, weight: .regular))
                             .foregroundColor(AppColors.textMuted.opacity(0.5))
-                            .padding(.top, 14)
-                            .padding(.leading, 6)
+                            .padding(.top, 8)
+                            .padding(.leading, 5)
                     }
 
                     if isLoading {
-                        // Loading state
-                        VStack(spacing: 10) {
+                        // Loading state - aligned with TextEditor's internal padding
+                        VStack(alignment: .leading, spacing: 10) {
                             ForEach(0..<4, id: \.self) { index in
                                 RoundedRectangle(cornerRadius: 4, style: .continuous)
                                     .fill(Color.white.opacity(0.05))
                                     .frame(height: 14)
-                                    .frame(maxWidth: index == 3 ? 180 : .infinity)
+                                    .frame(maxWidth: index == 3 ? 180 : .infinity, alignment: .leading)
                             }
                         }
-                        .padding(.vertical, 8)
+                        .padding(.top, 8)
+                        .padding(.leading, 5)
                     } else {
                         // Text editor
                         TextEditor(text: $noteText)

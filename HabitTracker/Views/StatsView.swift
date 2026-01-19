@@ -12,6 +12,9 @@ struct StatsView: View {
     @State private var statsCalculator: StatsCalculator?
     @State private var selectedMonth: Date = Date()
     
+    // Calendar service for busy day awareness (disabled - not in project)
+    // @StateObject private var calendarService = CalendarService.shared
+    
     // Observe model changes to trigger re-renders when data is deleted/added
     @Query private var obligations: [ObligationModel]
     @Query private var goals: [GoalModel]
@@ -21,7 +24,7 @@ struct StatsView: View {
         ZStack {
             AppMaterials.moodGradient
 
-            ScrollView(.vertical, showsIndicators: false) {
+            ResetScrollView(viewName: "StatsView", showsIndicators: false) {
                 VStack(spacing: 0) {
                     // SECTION 1: Primary Reality Block (Rolling 12-Month)
                     primaryRealitySection
@@ -55,11 +58,15 @@ struct StatsView: View {
             }
         }
         .onAppear {
+            NavigationLogger.shared.logViewAppear("StatsView")
             // Processing pending obligations to ensure stats are accurate
             DeadlineProcessor.shared.processPendingObligations(modelContext: modelContext)
 
             // Initialize stats calculator
             statsCalculator = StatsCalculator(modelContext: modelContext)
+        }
+        .onDisappear {
+            NavigationLogger.shared.logViewDisappear("StatsView")
         }
     }
 
@@ -68,11 +75,13 @@ struct StatsView: View {
     private var primaryRealitySection: some View {
         let stats = statsCalculator?.yearlyStats() ?? YearlyStats(
             completedPercent: 0,
+            completed: 0,
+            expected: 0,
             year: Calendar.current.component(.year, from: Date())
         )
 
         return VStack(spacing: AppSpacing.lg) {
-            consistencyRing(percentage: stats.completedPercent)
+            consistencyRing(percentage: stats.completedPercent, displayText: stats.displayText)
 
             Text("YEAR \(String(stats.year))")
                 .font(AppTypography.caption)
@@ -82,7 +91,7 @@ struct StatsView: View {
         }
     }
 
-    private func consistencyRing(percentage: Double) -> some View {
+    private func consistencyRing(percentage: Double, displayText: String) -> some View {
         ZStack {
             AppComponents.GlowCircle(
                 color: AppColors.primarySubtle,
@@ -107,7 +116,7 @@ struct StatsView: View {
                 .shadow(color: AppColors.primaryGlow, radius: 6)
 
             VStack(spacing: AppSpacing.sm) {
-                Text("\(Int(percentage * 100))%")
+                Text(displayText)
                     .font(AppTypography.displayLarge)
                     .foregroundColor(AppColors.textPrimary)
                     .shadow(color: .white.opacity(0.3), radius: 20)
@@ -156,6 +165,22 @@ struct StatsView: View {
                         Spacer()
                         monthStatItem(value: stats.pending, label: "PENDING")
                     }
+                    
+                    // Calendar busy days indicator (disabled - CalendarService not in project)
+                    // if calendarService.isAuthorized && stats.busyDaysCount > 0 {
+                    //     Divider()
+                    //         .background(Color.white.opacity(0.1))
+                    //
+                    //     HStack(spacing: 6) {
+                    //         Image(systemName: "calendar")
+                    //             .font(.system(size: 11, weight: .medium))
+                    //             .foregroundColor(AppColors.textMuted)
+                    //
+                    //         Text("\(stats.busyDaysCount) day\(stats.busyDaysCount == 1 ? "" : "s") with calendar events")
+                    //             .font(.system(size: 10, weight: .medium))
+                    //             .foregroundColor(AppColors.textSecondary)
+                    //     }
+                    // }
                 }
                 .padding(AppSpacing.lg)
             }

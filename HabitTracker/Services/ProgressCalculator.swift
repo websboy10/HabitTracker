@@ -59,73 +59,18 @@ final class ProgressCalculator {
         return (obligations.count, completed, missed, pending)
     }
 
-    /// Count of missed obligations for today.
-    func missedToday() -> Int {
-        todayCountsExtended().missed
-    }
-
-    // MARK: - Weekly Progress
-
-    /// Returns weekly progress for the current week.
-    func weekProgress() -> (completed: Int, total: Int, dayProgress: [Bool]) {
-        let now = Date()
-        let startOfWeek = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now))!
-
-        var dayProgress: [Bool] = []
-        var totalCompleted = 0
-        var totalObligations = 0
-
-        for dayOffset in 0..<7 {
-            guard let dayStart = calendar.date(byAdding: .day, value: dayOffset, to: startOfWeek),
-                  let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else {
-                dayProgress.append(false)
-                continue
-            }
-
-            let dayObligations = fetchObligationsForDateRange(from: dayStart, to: dayEnd)
-
-            if !dayObligations.isEmpty {
-                let completed = dayObligations.filter { $0.isCompleted }.count
-                let missed = dayObligations.filter { deadlineEngine.isEffectivelyMissed($0, at: now) }.count
-                totalCompleted += completed
-                totalObligations += dayObligations.count
-
-                // Day passed if ALL obligations completed AND none missed
-                let allCompleted = completed == dayObligations.count && missed == 0
-                dayProgress.append(allCompleted)
-            } else {
-                dayProgress.append(false)
-            }
-        }
-
-        return (totalCompleted, totalObligations, dayProgress)
-    }
-
-    /// Binary: true if ALL obligations completed this week, false if ANY missed or pending.
-    /// CORRECTED: Week passed = ALL completed AND zero misses.
-    func weeklyPassed() -> Bool {
-        let now = Date()
-        let startOfWeek = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now))!
-        guard let endOfWeek = calendar.date(byAdding: .day, value: 7, to: startOfWeek) else { return false }
-
-        let obligations = fetchObligationsForDateRange(from: startOfWeek, to: min(endOfWeek, now))
-
-        let total = obligations.count
-        let completed = obligations.filter { $0.isCompleted }.count
-        let missed = obligations.filter { deadlineEngine.isEffectivelyMissed($0, at: now) }.count
-
-        // FIXED: Week passed = ALL completed AND zero misses
-        return total > 0 && completed == total && missed == 0
-    }
-
     // MARK: - Monthly Week Progress
 
     /// Returns progress for each week (1-4) of the current month.
     /// Each week is a 7-day block starting from the 1st of the month.
     /// Week ranges are clamped to month boundaries.
     func monthlyWeekProgress() -> [(completed: Int, total: Int, percentage: Double)] {
-        let now = Date()
-        let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: now))!
+        monthlyWeekProgress(for: Date())
+    }
+
+    /// Returns progress for each week (1-4) of the selected month.
+    func monthlyWeekProgress(for monthDate: Date) -> [(completed: Int, total: Int, percentage: Double)] {
+        let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: monthDate))!
         let daysInMonth = calendar.range(of: .day, in: .month, for: startOfMonth)?.count ?? 30
         guard let endOfMonth = calendar.date(byAdding: .day, value: daysInMonth, to: startOfMonth) else {
             return Array(repeating: (0, 0, 0), count: 4)
@@ -165,12 +110,23 @@ final class ProgressCalculator {
         let stats = monthlyStats()
         return (stats.completed, stats.total)
     }
+
+    /// Returns completed/total obligations for the selected month.
+    func monthlyTotals(for monthDate: Date) -> (completed: Int, total: Int) {
+        let stats = monthlyStats(for: monthDate)
+        return (stats.completed, stats.total)
+    }
     
     /// Returns comprehensive monthly stats matching StatsCalculator's format.
     /// This is the single source of truth for monthly obligation stats in HomeView.
     func monthlyStats() -> (completed: Int, missed: Int, pending: Int, total: Int, percentage: Double) {
+        monthlyStats(for: Date())
+    }
+
+    /// Returns comprehensive monthly stats for a selected month.
+    func monthlyStats(for monthDate: Date) -> (completed: Int, missed: Int, pending: Int, total: Int, percentage: Double) {
         let now = Date()
-        let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: now))!
+        let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: monthDate))!
         guard let startOfNextMonth = calendar.date(byAdding: .month, value: 1, to: startOfMonth) else {
             return (0, 0, 0, 0, 0)
         }
@@ -187,85 +143,43 @@ final class ProgressCalculator {
 
     // MARK: - Monthly Progress
 
-    /// Returns monthly resolved counts: (completed, missed, pending).
-    func monthlyResolved() -> (completed: Int, missed: Int, pending: Int) {
-        let now = Date()
-        let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: now))!
-        guard let startOfNextMonth = calendar.date(byAdding: .month, value: 1, to: startOfMonth) else {
-            return (0, 0, 0)
-        }
-
-        let obligations = fetchObligationsForDateRange(from: startOfMonth, to: startOfNextMonth)
-
-        let completed = obligations.filter { $0.isCompleted }.count
-        let missed = obligations.filter { deadlineEngine.isEffectivelyMissed($0, at: now) }.count
-        let pending = obligations.filter { deadlineEngine.isEffectivelyPending($0, at: now) }.count
-
-        return (completed, missed, pending)
-    }
-
     // MARK: - Yearly Progress
 
-    /// Calculates yearly consistency: percentage of passed weeks + total misses.
-    /// CORRECTED: Uses DeadlineEngine and proper week passed logic.
-    func yearlyConsistency() -> (passedWeeksPercent: Double, totalMissed: Int) {
+    /// Returns yearly totals based on active goals and completed obligations.
+    /// Expected counts follow frequency rules (daily/weekly/monthly) for the full calendar year.
+    func yearlyTotals(for year: Int? = nil) -> (completed: Int, expected: Int, percentage: Double, year: Int) {
         let now = Date()
-        let currentWeek = calendar.component(.weekOfYear, from: now)
-        let currentYear = calendar.component(.year, from: now)
+        let targetYear = year ?? calendar.component(.year, from: now)
 
-        var passedWeeks = 0
-        var totalMissed = 0
-
-        for weekNum in 1...currentWeek {
-            guard let weekStart = calendar.date(from: DateComponents(weekOfYear: weekNum, yearForWeekOfYear: currentYear)) else {
-                continue
-            }
-            guard let weekEnd = calendar.date(byAdding: .day, value: 7, to: weekStart) else {
-                continue
-            }
-
-            let effectiveEnd = min(weekEnd, now)
-            let obligations = fetchObligationsForDateRange(from: weekStart, to: effectiveEnd)
-
-            // FIXED: Use DeadlineEngine for consistent missed detection
-            let missed = obligations.filter { deadlineEngine.isEffectivelyMissed($0, at: effectiveEnd) }.count
-            let completed = obligations.filter { $0.isCompleted }.count
-            let total = obligations.count
-
-            totalMissed += missed
-
-            // FIXED: Week passed = ALL completed AND zero misses
-            if total > 0 && completed == total && missed == 0 {
-                passedWeeks += 1
-            }
+        guard let yearStart = calendar.date(from: DateComponents(year: targetYear, month: 1, day: 1)),
+              let yearEnd = calendar.date(from: DateComponents(year: targetYear + 1, month: 1, day: 1)) else {
+            return (0, 0, 0, targetYear)
         }
 
-        let percent = currentWeek > 0 ? Double(passedWeeks) / Double(currentWeek) : 0
-        return (percent, totalMissed)
-    }
+        let activeGoals = fetchActiveGoals()
+        let activeGoalIds = Set(activeGoals.map(\.id))
 
-    /// Overall yearly progress across all active goals.
-    func yearlyProgress() -> Double {
-        let consistency = yearlyConsistency()
-        return consistency.passedWeeksPercent
-    }
+        let completed = completedObligations(from: yearStart, to: yearEnd, activeGoalIds: activeGoalIds)
+        let expected = expectedYearlyTotal(for: activeGoals, from: yearStart, to: yearEnd)
+        let percentage = expected > 0 ? Double(completed) / Double(expected) : 0
 
-    /// Yearly progress for a specific goal.
-    func yearlyProgress(for goal: GoalModel) -> Double {
-        let now = Date()
-        let startOfYear = calendar.date(from: calendar.dateComponents([.year], from: now))!
-
-        let obligations = fetchObligationsForGoal(goal.id, from: startOfYear, to: now)
-
-        let completed = obligations.filter { $0.isCompleted }.count
-        let missed = obligations.filter { deadlineEngine.isEffectivelyMissed($0, at: now) }.count
-        let resolved = completed + missed
-
-        guard resolved > 0 else { return 0 }
-        return Double(completed) / Double(resolved)
+        return (completed, expected, min(percentage, 1.0), targetYear)
     }
 
     // MARK: - Helpers
+
+    private func completedObligations(from startDate: Date, to endDate: Date, activeGoalIds: Set<UUID>) -> Int {
+        guard !activeGoalIds.isEmpty else { return 0 }
+        let descriptor = FetchDescriptor<ObligationModel>()
+        let all = (try? modelContext.fetch(descriptor)) ?? []
+
+        return all.filter { obligation in
+            guard activeGoalIds.contains(obligation.goalId) else { return false }
+            guard obligation.isCompleted else { return false }
+            let completionDate = obligation.completedAt ?? obligation.scheduledAt
+            return completionDate >= startDate && completionDate < endDate
+        }.count
+    }
 
     private func fetchObligationsForDateRange(from startDate: Date, to endDate: Date) -> [ObligationModel] {
         let descriptor = FetchDescriptor<ObligationModel>()
@@ -360,6 +274,41 @@ final class ProgressCalculator {
             }
             return count
 
+        default:
+            return 0
+        }
+    }
+
+    private func expectedYearlyTotal(for goals: [GoalModel], from startDate: Date, to endDate: Date) -> Int {
+        guard !goals.isEmpty else { return 0 }
+        return goals.reduce(0) { total, goal in
+            total + expectedYearlyOccurrences(for: goal, from: startDate, to: endDate)
+        }
+    }
+
+    private func expectedYearlyOccurrences(for goal: GoalModel, from start: Date, to end: Date) -> Int {
+        let recurrence = normalizedRecurrence(goal.recurrenceType)
+
+        switch recurrence {
+        case "daily":
+            return frequencyCount(for: goal, recurrence: recurrence) * 365
+        case "weekly":
+            return frequencyCount(for: goal, recurrence: recurrence) * 52
+        case "monthly":
+            return frequencyCount(for: goal, recurrence: recurrence) * 12
+        case "custom", "none", "one-off", "oneoff":
+            return expectedOccurrences(for: goal, from: start, to: end)
+        default:
+            return 0
+        }
+    }
+
+    private func frequencyCount(for goal: GoalModel, recurrence: String) -> Int {
+        switch recurrence {
+        case "weekly":
+            return normalizedWeekdays(goal.weekdays).count
+        case "daily", "monthly":
+            return 1
         default:
             return 0
         }
