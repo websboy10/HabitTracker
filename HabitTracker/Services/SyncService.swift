@@ -313,7 +313,8 @@ final class SyncService: ObservableObject {
         guard AppSessionManager.shared.state == .running else { return }
         guard isCloudSyncEnabled else { return }
         do {
-            try await supabase.deleteObligations(goalId: goalId.uuidString)
+            // Delete completions for this goal first (if foreign key doesn't cascade)
+            try await supabase.deleteCompletions(goalId: goalId.uuidString)
             try await supabase.deleteGoal(id: goalId.uuidString)
             clearLocalGoalDeletion(goalId)
         } catch {

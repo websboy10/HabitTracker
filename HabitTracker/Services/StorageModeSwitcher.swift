@@ -59,9 +59,9 @@ final class StorageModeSwitcher: ObservableObject {
             transitionProgress = "Uploading goals..."
             try await uploadGoals(modelContext: modelContext, userId: userId)
 
-            // 2. Upload obligations
-            transitionProgress = "Uploading obligations..."
-            try await uploadObligations(modelContext: modelContext, userId: userId)
+            // 2. Upload completions (from completed obligations)
+            transitionProgress = "Uploading completions..."
+            try await uploadCompletions(modelContext: modelContext, userId: userId)
 
             // 3. Upload weekly notes
             transitionProgress = "Uploading notes..."
@@ -147,34 +147,32 @@ final class StorageModeSwitcher: ObservableObject {
         SyncLogger.logStorage("Uploaded \(goals.count) goals")
     }
     
-    private func uploadObligations(modelContext: ModelContext, userId: String) async throws {
-        let descriptor = FetchDescriptor<ObligationModel>()
-        let obligations = try modelContext.fetch(descriptor)
+    private func uploadCompletions(modelContext: ModelContext, userId: String) async throws {
+        let descriptor = FetchDescriptor<ObligationModel>(
+            predicate: #Predicate { $0.status == "completed" }
+        )
+        let completedObligations = try modelContext.fetch(descriptor)
         
-        var dtos: [ObligationDTO] = []
-        for obligation in obligations {
-            let dto = ObligationDTO(
+        var dtos: [CompletionDTO] = []
+        for obligation in completedObligations {
+            guard let completedAt = obligation.completedAt else { continue }
+            let dto = CompletionDTO(
                 id: obligation.id.uuidString,
                 userId: userId,
                 goalId: obligation.goalId.uuidString,
-                scheduledAt: iso8601Formatter.string(from: obligation.scheduledAt),
-                status: obligation.status,
-                lockedAt: obligation.lockedAt.map { iso8601Formatter.string(from: $0) },
-                createdAt: iso8601Formatter.string(from: obligation.createdAt),
-                updatedAt: iso8601Formatter.string(from: obligation.updatedAt)
+                completedAt: iso8601Formatter.string(from: completedAt),
+                value: 1.0,
+                createdAt: iso8601Formatter.string(from: obligation.createdAt)
             )
             dtos.append(dto)
         }
         
-        // Batch upload in chunks
-        let chunkSize = 100
-        for chunk in stride(from: 0, to: dtos.count, by: chunkSize) {
-            let end = min(chunk + chunkSize, dtos.count)
-            let batch = Array(dtos[chunk..<end])
-            _ = try await supabase.upsertObligations(batch)
+        // Batch upload completions
+        if !dtos.isEmpty {
+            _ = try await supabase.upsertCompletions(dtos)
         }
         
-        SyncLogger.logStorage("Uploaded \(obligations.count) obligations")
+        SyncLogger.logStorage("Uploaded \(dtos.count) completions")
     }
     
     private func uploadWeeklyNotes(modelContext: ModelContext, userId: String) async throws {

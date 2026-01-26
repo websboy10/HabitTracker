@@ -92,10 +92,27 @@ final class AuthEngine: ObservableObject {
             }
         }
         
-        // 3. Load provider from persisted state
+        // 3. Load provider from persisted state or infer from session
         if let providerRaw = UserDefaults.standard.string(forKey: providerKey),
            let provider = AuthProvider(rawValue: providerRaw) {
             currentProvider = provider
+        } else {
+            // Fallback: Infer provider from session metadata
+            // This handles cases where UserDefaults was cleared but session is valid
+            if let providerString = session.user.appMetadata?.provider {
+                switch providerString.lowercased() {
+                case "email":
+                    currentProvider = .emailPassword
+                    persistProvider(.emailPassword)
+                    SyncLogger.logAuth("Provider inferred from session: email")
+                case "apple":
+                    currentProvider = .apple
+                    persistProvider(.apple)
+                    SyncLogger.logAuth("Provider inferred from session: apple")
+                default:
+                    SyncLogger.logAuth("Unknown provider in session: \(providerString)", level: .warning)
+                }
+            }
         }
         
         // 4. INVARIANT: Must have known provider to be authenticated

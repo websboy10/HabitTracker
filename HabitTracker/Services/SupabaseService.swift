@@ -23,6 +23,12 @@ struct SupabaseSession: Codable {
     }
 }
 
+/// App metadata from Supabase containing provider info
+struct SupabaseAppMetadata: Codable {
+    let provider: String?
+    let providers: [String]?
+}
+
 /// Supabase user data
 struct SupabaseUser: Codable {
     let id: String
@@ -30,6 +36,7 @@ struct SupabaseUser: Codable {
     let phone: String?
     let createdAt: String?
     let updatedAt: String?
+    let appMetadata: SupabaseAppMetadata?
     
     enum CodingKeys: String, CodingKey {
         case id
@@ -37,6 +44,7 @@ struct SupabaseUser: Codable {
         case phone
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case appMetadata = "app_metadata"
     }
 }
 
@@ -1163,6 +1171,16 @@ final class SupabaseService: ObservableObject {
             queryParams: [("id", "eq.\(id)")]
         )
     }
+    
+    /// Delete all completions for a goal
+    func deleteCompletions(goalId: String) async throws {
+        guard isCloudModeEnabled else { return }
+        _ = try await makeRequest(
+            path: "completions",
+            method: "DELETE",
+            queryParams: [("goal_id", "eq.\(goalId)")]
+        )
+    }
 
     // MARK: - Obligation Operations
 
@@ -1187,49 +1205,8 @@ final class SupabaseService: ObservableObject {
         
         return try decoder.decode([CompletionDTO].self, from: data)
     }
-
-    /// Upsert multiple obligations
-    func upsertObligations(_ obligations: [ObligationDTO]) async throws -> [ObligationDTO] {
-        guard isCloudModeEnabled else { return obligations }
-        guard !obligations.isEmpty else { return [] }
-
-        let body = try encoder.encode(obligations)
-
-        var request = URLRequest(url: URL(string: "\(supabaseURL)/rest/v1/obligations?on_conflict=id")!)
-        request.httpMethod = "POST"
-        authHeaders.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
-        request.setValue("return=representation,resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
-        request.httpBody = body
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 else {
-            throw SupabaseError(message: "Failed to upsert obligations", error: nil, errorDescription: nil, statusCode: nil)
-        }
-
-        return try decoder.decode([ObligationDTO].self, from: data)
-    }
-
-    /// Delete an obligation
-    func deleteObligation(id: String) async throws {
-        guard isCloudModeEnabled else { return }
-        _ = try await makeRequest(
-            path: "obligations",
-            method: "DELETE",
-            queryParams: [("id", "eq.\(id)")]
-        )
-    }
-
-    /// Delete obligations for a goal
-    func deleteObligations(goalId: String) async throws {
-        guard isCloudModeEnabled else { return }
-        _ = try await makeRequest(
-            path: "obligations",
-            method: "DELETE",
-            queryParams: [("goal_id", "eq.\(goalId)")]
-        )
-    }
+    // NOTE: Obligations are stored locally in SwiftData only.
+    // The cloud uses the `completions` table instead, not an `obligations` table.
     
     // MARK: - Bulk Operations
     
@@ -1414,7 +1391,7 @@ final class SupabaseService: ObservableObject {
     }
     
     /// Resets user's goal/task data without deleting account or settings.
-    /// Deletes: completions, obligations, goals
+    /// Deletes: completions, weekly_notes, goals
     /// Keeps: profile, settings (user stays logged in)
     func resetUserData() async throws {
         guard let userId = currentUserId else {
@@ -1422,27 +1399,21 @@ final class SupabaseService: ObservableObject {
         }
         
         // Delete in order respecting foreign key constraints:
-        // completions -> obligations -> weekly_notes -> goals
+        // completions -> weekly_notes -> goals
         
         // 1. Delete all completions
         var request = URLRequest(url: URL(string: "\(supabaseURL)/rest/v1/completions?user_id=eq.\(userId)")!)
         request.httpMethod = "DELETE"
         authHeaders.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
         let _ = try await URLSession.shared.data(for: request)
-        
-        // 2. Delete all obligations
-        request = URLRequest(url: URL(string: "\(supabaseURL)/rest/v1/obligations?user_id=eq.\(userId)")!)
-        request.httpMethod = "DELETE"
-        authHeaders.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
-        let _ = try await URLSession.shared.data(for: request)
 
-        // 3. Delete all weekly notes
+        // 2. Delete all weekly notes
         request = URLRequest(url: URL(string: "\(supabaseURL)/rest/v1/weekly_notes?user_id=eq.\(userId)")!)
         request.httpMethod = "DELETE"
         authHeaders.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
         let _ = try await URLSession.shared.data(for: request)
 
-        // 4. Delete all goals
+        // 3. Delete all goals
         request = URLRequest(url: URL(string: "\(supabaseURL)/rest/v1/goals?user_id=eq.\(userId)")!)
         request.httpMethod = "DELETE"
         authHeaders.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }

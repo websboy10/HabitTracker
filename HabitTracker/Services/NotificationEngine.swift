@@ -618,31 +618,56 @@ final class NotificationEngine {
         return content
     }
     
-    // Trigger logic remains same...
+    /// Creates a non-repeating trigger for the next occurrence of a report.
+    /// By using `repeats: false`, we ensure each notification has fresh stats calculated
+    /// at the time it's scheduled. The notification is rescheduled after:
+    /// - App enters foreground
+    /// - Any data change (goal create/update/delete, obligation update)
+    /// - After the notification fires (via app launch or sync)
     private func reportNotificationTrigger(for type: ReportNotificationStore.ReportType) -> UNCalendarNotificationTrigger? {
-        var components = DateComponents()
         let time = ReportNotificationStore.getTime(for: type)
-        let timeComponents = Calendar.current.dateComponents([.hour, .minute], from: time)
+        let timeComponents = calendar.dateComponents([.hour, .minute], from: time)
+
+        guard let hour = timeComponents.hour, let minute = timeComponents.minute else { return nil }
+
+        // Calculate the next occurrence date
+        guard let nextDate = nextOccurrence(for: type, hour: hour, minute: minute) else { return nil }
+
+        // Extract full date components for a specific date (not repeating)
+        let triggerComponents = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: nextDate)
+
+        // Use repeats: false - stats are fresh at schedule time, rescheduled after delivery
+        return UNCalendarNotificationTrigger(dateMatching: triggerComponents, repeats: false)
+    }
+
+    /// Calculates the next occurrence date for a report type.
+    private func nextOccurrence(for type: ReportNotificationStore.ReportType, hour: Int, minute: Int) -> Date? {
+        let now = Date()
+        var components = DateComponents()
+        components.hour = hour
+        components.minute = minute
 
         switch type {
         case .daily:
-            components.hour = timeComponents.hour
-            components.minute = timeComponents.minute
-        case .weekly:
-            components.weekday = 1 // Sunday
-            components.hour = timeComponents.hour
-            components.minute = timeComponents.minute
-        case .monthly:
-            components.day = 1
-            components.hour = timeComponents.hour
-            components.minute = timeComponents.minute
-        }
+            // Today at specified time, or tomorrow if already past
+            guard var candidate = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: now) else { return nil }
+            if candidate <= now {
+                candidate = calendar.date(byAdding: .day, value: 1, to: candidate) ?? candidate
+            }
+            return candidate
 
-        // IMPORTANT: Repeats = true means the content is static for future occurrences.
-        // We accept this limitation: Future occurrences will have the SAME text "X%".
-        // BUT we update it every time the app opens/syncs.
-        // So as long as the user uses the app, it updates.
-        return UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
+        case .weekly:
+            // Next Sunday at specified time
+            components.weekday = 1 // Sunday
+            guard let next = calendar.nextDate(after: now, matching: components, matchingPolicy: .nextTime) else { return nil }
+            return next
+
+        case .monthly:
+            // 1st of next month (or this month if not yet past)
+            components.day = 1
+            guard let next = calendar.nextDate(after: now, matching: components, matchingPolicy: .nextTime) else { return nil }
+            return next
+        }
     }
 }
 

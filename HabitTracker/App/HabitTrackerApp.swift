@@ -107,6 +107,8 @@ struct HabitTrackerApp: App {
                 }
             }
             .task {
+                // Provide model container to AppDelegate for foreground notification refresh
+                appDelegate.modelContainer = modelContainer
                 // Initialize Session Manager Logic
                 await session.initialize(modelContext: modelContainer.mainContext)
             }
