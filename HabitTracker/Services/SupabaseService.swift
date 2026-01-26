@@ -34,6 +34,8 @@ struct SupabaseUser: Codable {
     let id: String
     let email: String?
     let phone: String?
+    let emailConfirmedAt: String?
+    let confirmedAt: String?
     let createdAt: String?
     let updatedAt: String?
     let appMetadata: SupabaseAppMetadata?
@@ -42,6 +44,8 @@ struct SupabaseUser: Codable {
         case id
         case email
         case phone
+        case emailConfirmedAt = "email_confirmed_at"
+        case confirmedAt = "confirmed_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case appMetadata = "app_metadata"
@@ -273,7 +277,7 @@ struct WeeklyNoteUpsertDTO: Encodable {
     }
 }
 
-/// Task DTO matching tasks table
+/// TaskDTO matching tasks table
 struct TaskDTO: Codable {
     var id: String?
     let userId: String
@@ -294,6 +298,62 @@ struct TaskDTO: Codable {
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
+}
+
+/// Snapshot DTO matching monthly_snapshots table
+struct SnapshotDTO: Codable {
+    var id: String?
+    let userId: String
+    let year: Int
+    let month: Int
+    // Stored as JSONB, transmitted as Data/String? JSONB comes as underlying JSON.
+    // Supabase JSONB is usually decoded as AnyCodable or raw JSON.
+    // Ideally we treat it as specific structs, but `Data` is flexible if we custom decode.
+    // Let's use specific structs for type safety if possible, or just generic JSON container.
+    // Plan said: stats JSONB, ledger JSONB.
+    // To allow `Codable` to work seamlessly with Supabase JSONB, we might need a wrapper or use generic Dictionary.
+    // However, Swift's Codable with `Data` might not auto-map to JSONB object.
+    // Let's use `AnyCodable` equivalent or just `String` if we serialize it?
+    // No, standard is usually a struct.
+
+    // Let's define inner structs for Stats and Ledger to map directly.
+    // But `SnapshotModel` uses `Data`.
+    // Let's use `RawJSON` wrapper or just standard Codable Structs.
+
+    // Simpler: Use `StatsPayload` and `LedgerPayload` structs conforming to Codable.
+    let stats: StatsPayload
+    let ledger: [LedgerEntryPayload]
+
+    var createdAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId = "user_id"
+        case year, month
+        case stats, ledger
+        case createdAt = "created_at"
+    }
+}
+
+struct StatsPayload: Codable {
+    let completedCount: Int
+    let totalObligations: Int
+    let missedCount: Int
+    let completedPercent: Double
+
+    enum CodingKeys: String, CodingKey {
+        case completedCount = "completed_count"
+        case totalObligations = "total_obligations"
+        case missedCount = "missed_count"
+        case completedPercent = "completed_percent"
+    }
+}
+
+struct LedgerEntryPayload: Codable {
+    let week: Int
+    let passed: Bool
+    let total: Int
+    let completed: Int
 }
 
 // MARK: - Supabase Error
@@ -348,9 +408,8 @@ final class SupabaseService: ObservableObject {
     static let shared = SupabaseService()
     
     // MARK: - Configuration
-    // SECURITY: Move Supabase URL/key into a secure, non-source-controlled config.
-    private let supabaseURL = "https://frhmmwdsllaiwhbheakr.supabase.co"
-    private let supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZyaG1td2RzbGxhaXdoYmhlYWtyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc4NjQxODcsImV4cCI6MjA4MzQ0MDE4N30.sk8FIGQW9FDUE67we6Q-NyGtNukQMBaAH6p2Mlt9Y2I"
+    private let supabaseURL: String
+    private let supabaseAnonKey: String
     
     // MARK: - State
     @Published private(set) var currentSession: SupabaseSession?
@@ -358,6 +417,7 @@ final class SupabaseService: ObservableObject {
     @Published private(set) var currentUserId: String?
     
     private var sessionInitializationTask: Task<Void, Never>?
+    private var securityBypassCount: Int = 0
     
     /// Returns true ONLY if cloud storage mode is active
     private var isCloudModeEnabled: Bool {
@@ -386,6 +446,9 @@ final class SupabaseService: ObservableObject {
     // MARK: - Init
     
     private init() {
+        let config = SupabaseConfig.load()
+        supabaseURL = config.urlString
+        supabaseAnonKey = config.anonKey
         loadSession()
     }
     
@@ -577,10 +640,7 @@ final class SupabaseService: ObservableObject {
         
         print("[SupabaseService] 📥 Response status code: \(httpResponse.statusCode)")
         
-        // Log raw response for debugging
-        if let responseString = String(data: data, encoding: .utf8) {
-            print("[SupabaseService] 📄 Response body: \(responseString)")
-        }
+        // Avoid logging raw response bodies to prevent leaking secrets
         
         // Accept any 2xx status code as success
         if httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 {
@@ -645,10 +705,7 @@ final class SupabaseService: ObservableObject {
         
         print("[SupabaseService] 📥 Response status code: \(httpResponse.statusCode)")
         
-        // Log raw response for debugging
-        if let responseString = String(data: data, encoding: .utf8) {
-            print("[SupabaseService] 📄 Response body: \(responseString)")
-        }
+        // Avoid logging raw response bodies to prevent leaking secrets
         
         if httpResponse.statusCode == 200 {
             let session = try decoder.decode(SupabaseSession.self, from: data)
@@ -663,6 +720,37 @@ final class SupabaseService: ObservableObject {
                 print("[SupabaseService] ❌ Error: \(error.localizedDescription)")
             }
             throw error ?? SupabaseError(message: "Sign in failed", error: nil, errorDescription: nil, statusCode: httpResponse.statusCode)
+        }
+    }
+
+    /// Resend email confirmation for signup
+    func resendConfirmationEmail(email: String) async throws {
+        guard let url = URL(string: "\(supabaseURL)/auth/v1/resend") else {
+            throw SupabaseError(message: "Invalid URL", error: nil, errorDescription: nil, statusCode: nil)
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
+
+        let body = ["type": "signup", "email": email]
+        request.httpBody = try encoder.encode(body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SupabaseError(message: "Invalid response", error: nil, errorDescription: nil, statusCode: nil)
+        }
+
+        if httpResponse.statusCode < 200 || httpResponse.statusCode >= 300 {
+            let error = try? decoder.decode(SupabaseError.self, from: data)
+            throw error ?? SupabaseError(
+                message: "Confirmation resend failed",
+                error: nil,
+                errorDescription: nil,
+                statusCode: httpResponse.statusCode
+            )
         }
     }
     
@@ -700,9 +788,7 @@ final class SupabaseService: ObservableObject {
             return session
         } else {
             print("[SupabaseService] ❌ Apple Sign in failed: \(httpResponse.statusCode)")
-            if let responseString = String(data: data, encoding: .utf8) {
-                print("[SupabaseService] 📄 RAW ERROR RESPONSE: \(responseString)")
-            }
+            // Avoid logging raw response bodies to prevent leaking secrets
             let error = try? decoder.decode(SupabaseError.self, from: data)
             throw error ?? SupabaseError(message: "Apple Sign in failed (Status: \(httpResponse.statusCode))", error: nil, errorDescription: nil, statusCode: httpResponse.statusCode)
         }
@@ -734,47 +820,21 @@ final class SupabaseService: ObservableObject {
         }
         SyncLogger.logAccount("Starting account deletion for user: \(userId)")
         
-        // 1. Delete all data from public tables - ATOMIC: fail on any error
-        // Order matters - delete dependent tables first
-        let tables = ["completions", "weekly_notes", "goals", "categories", "user_settings", "profiles"]
-        
-        for table in tables {
-            SyncLogger.logAccount("Deleting from \(table)...")
-            do {
-                _ = try await makeRequest(
-                    path: table,
-                    method: "DELETE",
-                    queryParams: [(table == "profiles" ? "id" : "user_id", "eq.\(userId)")]
-                )
-            } catch {
-                SyncLogger.logAccount("Failed to delete from \(table) - ABORTING entire deletion", level: .error)
-                throw SupabaseError(
-                    message: "Account deletion aborted: failed to delete from \(table). No data was removed.",
-                    error: nil,
-                    errorDescription: error.localizedDescription,
-                    statusCode: nil
-                )
-            }
-        }
-        
-        // 2. Delete Auth User - THIS MUST SUCCEED
-        // If auth deletion fails, the entire operation fails
-        SyncLogger.logAccount("Deleting auth user via RPC...")
+        // Server-side deletion is authoritative and provider-agnostic.
+        // The RPC must revoke auth and delete all user data atomically.
+        SyncLogger.logAccount("Deleting auth user + data via RPC...")
         do {
-            _ = try await makeRequest(path: "rpc/delete_user", method: "POST", body: nil)
+            _ = try await makeRequest(path: "rpc/delete_user", method: "POST", body: nil, allowWhenLocked: true)
             SyncLogger.logAccount("Auth user deleted successfully")
         } catch {
             SyncLogger.logAccount("Auth user deletion failed - aborting", level: .error)
             throw SupabaseError(
-                message: "Account deletion failed: could not delete auth user. Your data remains intact.",
+                message: "Account deletion failed: could not delete auth user. No data was removed.",
                 error: nil,
                 errorDescription: error.localizedDescription,
                 statusCode: nil
             )
         }
-
-        // 3. Sign out locally only after successful auth deletion
-        await signOut()
         SyncLogger.logAccount("Account deletion complete")
     }
     
@@ -812,7 +872,8 @@ final class SupabaseService: ObservableObject {
             let data = try await makeRequest(
                 path: "profiles",
                 method: "GET",
-                queryParams: [("id", "eq.\(targetUserId)"), ("select", "*")]
+                queryParams: [("id", "eq.\(targetUserId)"), ("select", "*")],
+                requiresRunningState: false
             )
             
             let profiles = try decoder.decode([ProfileDTO].self, from: data)
@@ -851,8 +912,32 @@ final class SupabaseService: ObservableObject {
         }
         return headers
     }
+
+    func withSecurityBypass<T>(_ work: () async throws -> T) async rethrows -> T {
+        securityBypassCount += 1
+        defer { securityBypassCount -= 1 }
+        return try await work()
+    }
     
-    private func makeRequest(path: String, method: String, body: Data? = nil, queryParams: [(String, String)]? = nil) async throws -> Data {
+    private func makeRequest(
+        path: String,
+        method: String,
+        body: Data? = nil,
+        queryParams: [(String, String)]? = nil,
+        requiresRunningState: Bool = true,
+        allowWhenLocked: Bool = false
+    ) async throws -> Data {
+        if requiresRunningState {
+            let allowLock = allowWhenLocked || securityBypassCount > 0
+            guard RuntimeGuard.requireAuthenticatedRunning(allowWhenLocked: allowLock) else {
+                throw SupabaseError(
+                    message: "Lifecycle state invalid",
+                    error: nil,
+                    errorDescription: "Operation blocked by security guard",
+                    statusCode: 401
+                )
+            }
+        }
         var urlString = "\(supabaseURL)/rest/v1/\(path)"
         
         if let queryParams = queryParams, !queryParams.isEmpty {
@@ -909,7 +994,8 @@ final class SupabaseService: ObservableObject {
         let data = try await makeRequest(
             path: "profiles",
             method: "GET",
-            queryParams: [("id", "eq.\(userId)"), ("select", "*")]
+            queryParams: [("id", "eq.\(userId)"), ("select", "*")],
+            allowWhenLocked: true
         )
         
         let profiles = try decoder.decode([ProfileDTO].self, from: data)
@@ -924,7 +1010,8 @@ final class SupabaseService: ObservableObject {
         let data = try await makeRequest(
             path: "user_settings",
             method: "GET",
-            queryParams: [("user_id", "eq.\(userId)"), ("select", "*")]
+            queryParams: [("user_id", "eq.\(userId)"), ("select", "*")],
+            allowWhenLocked: true
         )
         
         let settings = try decoder.decode([UserSettingsDTO].self, from: data)
@@ -963,6 +1050,9 @@ final class SupabaseService: ObservableObject {
     /// Upsert profile (create or update)
     func upsertProfile(_ profile: ProfileDTO) async throws -> ProfileDTO {
         guard isCloudModeEnabled else { return profile }
+        guard RuntimeGuard.requireAuthenticatedRunning() else {
+            throw SupabaseError(message: "Lifecycle state invalid", error: nil, errorDescription: "Operation blocked by security guard", statusCode: 401)
+        }
         
         var profileToSave = profile
         profileToSave.updatedAt = iso8601Formatter.string(from: Date())
@@ -988,9 +1078,7 @@ final class SupabaseService: ObservableObject {
             return results.first ?? profileToSave
         } else {
             print("[SupabaseService] ❌ Upsert profile failed with status: \(httpResponse.statusCode)")
-            if let responseString = String(data: data, encoding: .utf8) {
-                print("[SupabaseService] 📄 Response body: \(responseString)")
-            }
+            // Avoid logging raw response bodies to prevent leaking sensitive data
             
             let error = try? decoder.decode(SupabaseError.self, from: data)
             throw error ?? SupabaseError(message: "Failed to upsert profile", error: nil, errorDescription: nil, statusCode: httpResponse.statusCode)
@@ -1017,6 +1105,9 @@ final class SupabaseService: ObservableObject {
     /// Update current user's settings (upsert)
     func upsertSettings(_ settings: UserSettingsDTO) async throws -> UserSettingsDTO {
         // Settings are always synced, regardless of storage mode
+        guard RuntimeGuard.requireAuthenticatedRunning() else {
+            throw SupabaseError(message: "Lifecycle state invalid", error: nil, errorDescription: "Operation blocked by security guard", statusCode: 401)
+        }
         var settingsToSave = settings
         settingsToSave.updatedAt = iso8601Formatter.string(from: Date())
         
@@ -1045,9 +1136,7 @@ final class SupabaseService: ObservableObject {
             return results.first ?? settingsToSave
         } else {
             print("[SupabaseService] ❌ Upsert settings failed with status: \(httpResponse.statusCode)")
-            if let responseString = String(data: data, encoding: .utf8) {
-                print("[SupabaseService] 📄 Response body: \(responseString)")
-            }
+            // Avoid logging raw response bodies to prevent leaking sensitive data
             
             let error = try? decoder.decode(SupabaseError.self, from: data)
             throw error ?? SupabaseError(message: "Failed to save settings", error: nil, errorDescription: nil, statusCode: httpResponse.statusCode)
@@ -1214,6 +1303,9 @@ final class SupabaseService: ObservableObject {
     func upsertGoals(_ goals: [GoalDTO]) async throws -> [GoalDTO] {
         guard isCloudModeEnabled else { return goals }
         guard !goals.isEmpty else { return [] }
+        guard RuntimeGuard.requireAuthenticatedRunning() else {
+            throw SupabaseError(message: "Lifecycle state invalid", error: nil, errorDescription: "Operation blocked by security guard", statusCode: 401)
+        }
         
         let body = try encoder.encode(goals)
         
@@ -1237,6 +1329,9 @@ final class SupabaseService: ObservableObject {
     func upsertCompletions(_ completions: [CompletionDTO]) async throws -> [CompletionDTO] {
         guard isCloudModeEnabled else { return completions }
         guard !completions.isEmpty else { return [] }
+        guard RuntimeGuard.requireAuthenticatedRunning() else {
+            throw SupabaseError(message: "Lifecycle state invalid", error: nil, errorDescription: "Operation blocked by security guard", statusCode: 401)
+        }
         
         let body = try encoder.encode(completions)
         
@@ -1297,6 +1392,9 @@ final class SupabaseService: ObservableObject {
     
     /// Delete all user data from a specific table
     func deleteAllUserData(from table: String, userId: String) async throws {
+        guard RuntimeGuard.requireAuthenticatedRunning() else {
+            throw SupabaseError(message: "Lifecycle state invalid", error: nil, errorDescription: "Operation blocked by security guard", statusCode: 401)
+        }
         let queryParam = table == "profiles" ? ("id", "eq.\(userId)") : ("user_id", "eq.\(userId)")
         
         _ = try await makeRequest(
@@ -1312,6 +1410,9 @@ final class SupabaseService: ObservableObject {
     func upsertWeeklyNotes(_ notes: [WeeklyNoteUpsertDTO]) async throws -> [WeeklyNoteDTO] {
         guard isCloudModeEnabled else { return [] }
         guard !notes.isEmpty else { return [] }
+        guard RuntimeGuard.requireAuthenticatedRunning() else {
+            throw SupabaseError(message: "Lifecycle state invalid", error: nil, errorDescription: "Operation blocked by security guard", statusCode: 401)
+        }
 
         let body = try encoder.encode(notes)
 
@@ -1420,6 +1521,65 @@ final class SupabaseService: ObservableObject {
         let _ = try await URLSession.shared.data(for: request)
         
         print("✅ User data reset in Supabase (profile and settings preserved)")
+    }
+    
+    // MARK: - Snapshot Operations
+    
+    /// Get all snapshots for the current user
+    func getSnapshots() async throws -> [SnapshotDTO] {
+        guard isCloudModeEnabled else { return [] }
+        guard let userId = currentUserId else { return [] }
+        
+        let data = try await makeRequest(
+            path: "monthly_snapshots",
+            method: "GET",
+            queryParams: [
+                ("user_id", "eq.\(userId)"),
+                ("select", "*"),
+                ("order", "year.desc,month.desc")
+            ]
+        )
+        
+        return try decoder.decode([SnapshotDTO].self, from: data)
+    }
+    
+    /// Upsert a snapshot
+    func upsertSnapshot(_ snapshot: SnapshotDTO) async throws -> SnapshotDTO {
+        guard isCloudModeEnabled else { return snapshot }
+        guard RuntimeGuard.requireAuthenticatedRunning() else {
+            throw SupabaseError(message: "Lifecycle state invalid", error: nil, errorDescription: "Operation blocked by security guard", statusCode: 401)
+        }
+        
+        let body = try encoder.encode(snapshot)
+        
+        var request = URLRequest(url: URL(string: "\(supabaseURL)/rest/v1/monthly_snapshots?on_conflict=user_id,year,month")!)
+        request.httpMethod = "POST"
+        authHeaders.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
+        request.setValue("return=representation,resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
+        request.httpBody = body
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 else {
+            throw SupabaseError(message: "Failed to upsert snapshot", error: nil, errorDescription: nil, statusCode: nil)
+        }
+        
+        // If success, decode response or return input
+        let results = try decoder.decode([SnapshotDTO].self, from: data)
+        return results.first ?? snapshot
+    }
+    
+    /// Delete all snapshots (used during account reset/deletion)
+    func deleteSnapshots() async throws {
+        guard isCloudModeEnabled else { return }
+        guard let userId = currentUserId else { return }
+        
+        _ = try await makeRequest(
+            path: "monthly_snapshots",
+            method: "DELETE",
+            queryParams: [("user_id", "eq.\(userId)")]
+        )
     }
 }
 

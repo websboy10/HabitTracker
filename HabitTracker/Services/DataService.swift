@@ -50,13 +50,16 @@ final class DataService: ObservableObject {
         guard RuntimeGuard.requireStorageModeResolved() else {
             throw DataServiceError.storageModeNotResolved
         }
+        guard RuntimeGuard.requireAuthenticatedRunning() else {
+            throw DataServiceError.notAuthenticated
+        }
     }
     
     /// Returns true if we should sync to cloud.
     /// Uses RuntimeGuard for validation.
     private var shouldSyncToCloud: Bool {
         guard StorageMode.isCloud else { return false }
-        return RuntimeGuard.requireAuth()
+        return RuntimeGuard.requireAuthenticatedRunning()
     }
     
     // MARK: - Goal Operations
@@ -159,6 +162,9 @@ final class DataService: ObservableObject {
                 SyncLogger.logCRUD("Queued goal deletion for later: \(goalId)", level: .warning)
             }
         }
+        
+        // 4. Taint History Integrity
+        taintHistoryHorizon()
     }
     
     // MARK: - Obligation Operations
@@ -233,12 +239,13 @@ final class DataService: ObservableObject {
         try modelContext.delete(model: ObligationModel.self)
         try modelContext.delete(model: GoalModel.self)
         try modelContext.delete(model: WeeklyNoteModel.self)
+        try modelContext.delete(model: SnapshotModel.self) // Add Snapshot deletion
         try modelContext.save()
         SyncLogger.logAccount("Deleted all local domain data")
 
         // 2. Delete all cloud data (if cloud mode)
         if shouldSyncToCloud, let userId = supabase.currentUserId {
-            let tables = ["obligations", "weekly_notes", "goals"]
+            let tables = ["obligations", "weekly_notes", "goals", "monthly_snapshots"]
             for table in tables {
                 do {
                     try await supabase.deleteAllUserData(from: table, userId: userId)
@@ -252,7 +259,10 @@ final class DataService: ObservableObject {
         // 3. Clear mutation queue
         mutationQueue.clear()
         
-        // 4. Verify emptiness
+        // 4. Taint History (Reset horizon)
+        taintHistoryHorizon()
+        
+        // 5. Verify emptiness
         let goalCount = try modelContext.fetchCount(FetchDescriptor<GoalModel>())
         let obligationCount = try modelContext.fetchCount(FetchDescriptor<ObligationModel>())
         
@@ -261,6 +271,14 @@ final class DataService: ObservableObject {
         }
         
         SyncLogger.logAccount("Reset all data complete - verified empty")
+    }
+    
+    // MARK: - History Integrity
+    
+    private func taintHistoryHorizon() {
+        let now = Date()
+        UserDefaults.standard.set(now, forKey: "historyHorizon")
+        SyncLogger.logCRUD("Historical data tainted at: \(now). Snapshots will maintain strict integrity.")
     }
     
     // MARK: - Private Cloud Sync Helpers

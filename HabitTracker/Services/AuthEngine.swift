@@ -8,6 +8,7 @@ import Foundation
 enum AuthState: String, CaseIterable {
     case unauthenticated   // No valid session, requires login
     case authenticating    // Login in progress
+    case waitingForEmailConfirmation // Signup complete, email not confirmed
     case authenticated     // Valid session, all systems unblocked
     case invalid           // Session was valid but is now invalid (expired, revoked)
 }
@@ -51,6 +52,8 @@ final class AuthEngine: ObservableObject {
     private let supabase = SupabaseService.shared
     
     private let providerKey = "auth_provider"
+    private let confirmationPendingKey = "auth_email_confirmation_pending"
+    private let confirmationPendingEmailKey = "auth_email_confirmation_email"
     
     // MARK: - Init
     
@@ -70,6 +73,14 @@ final class AuthEngine: ObservableObject {
         
         // 1. Check for persisted session
         guard let session = supabase.currentSession else {
+            if isConfirmationPending {
+                SyncLogger.logAuth("No session found - awaiting email confirmation")
+                currentProvider = .emailPassword
+                userEmail = pendingConfirmationEmail
+                state = .waitingForEmailConfirmation
+                return state
+            }
+            
             SyncLogger.logAuth("No session found - unauthenticated")
             state = .unauthenticated
             return state
@@ -122,10 +133,22 @@ final class AuthEngine: ObservableObject {
             return state
         }
         
-        // 5. Establish authenticated state
+        // 5. Establish user identity
         userId = session.user.id
         userEmail = session.user.email
+
+        // 6. Email confirmation gate
+        if !isEmailConfirmed(session.user, provider: currentProvider) {
+            SyncLogger.logAuth("Auth resolved: email not confirmed")
+            state = .waitingForEmailConfirmation
+            persistPendingConfirmation(email: session.user.email)
+            await supabase.signOut(preserveLocalState: true)
+            return state
+        }
+
+        // 7. Establish authenticated state
         state = .authenticated
+        clearPendingConfirmation()
         
         SyncLogger.logAuth("Auth resolved: authenticated (provider: \(currentProvider!.rawValue))")
         return state
@@ -160,7 +183,17 @@ final class AuthEngine: ObservableObject {
             persistProvider(.emailPassword)
             userId = session.user.id
             userEmail = session.user.email
+
+            if !isEmailConfirmed(session.user, provider: currentProvider) {
+                SyncLogger.logAuth("Email login requires confirmation")
+                state = .waitingForEmailConfirmation
+                persistPendingConfirmation(email: session.user.email ?? email)
+                await supabase.signOut(preserveLocalState: true)
+                return
+            }
+
             state = .authenticated
+            clearPendingConfirmation()
             
             SyncLogger.logAuth("Email login successful")
             
@@ -168,6 +201,17 @@ final class AuthEngine: ObservableObject {
             state = .unauthenticated
             throw error
         } catch {
+            if let supabaseError = error as? SupabaseError,
+               supabaseError.error?.lowercased() == "email_not_confirmed" {
+                SyncLogger.logAuth("Email login requires confirmation")
+                currentProvider = .emailPassword
+                persistProvider(.emailPassword)
+                userEmail = email
+                state = .waitingForEmailConfirmation
+                persistPendingConfirmation(email: email)
+                return
+            }
+            
             SyncLogger.logAuth("Email login failed: \(error.localizedDescription)", level: .error)
             state = .unauthenticated
             throw AuthEngineError.loginFailed(error.localizedDescription)
@@ -202,7 +246,17 @@ final class AuthEngine: ObservableObject {
             persistProvider(.apple)
             userId = session.user.id
             userEmail = session.user.email
+
+            if !isEmailConfirmed(session.user, provider: currentProvider) {
+                SyncLogger.logAuth("Apple login requires confirmation")
+                state = .waitingForEmailConfirmation
+                persistPendingConfirmation(email: session.user.email)
+                await supabase.signOut(preserveLocalState: true)
+                return
+            }
+
             state = .authenticated
+            clearPendingConfirmation()
             
             SyncLogger.logAuth("Apple login successful")
             
@@ -235,15 +289,50 @@ final class AuthEngine: ObservableObject {
             persistProvider(.emailPassword)
             userId = session.user.id
             userEmail = session.user.email
+
+            if !isEmailConfirmed(session.user, provider: currentProvider) {
+                SyncLogger.logAuth("Signup requires email confirmation")
+                state = .waitingForEmailConfirmation
+                persistPendingConfirmation(email: session.user.email ?? email)
+                await supabase.signOut(preserveLocalState: true)
+                return
+            }
+
             state = .authenticated
+            clearPendingConfirmation()
             
             SyncLogger.logAuth("Email signup successful")
             
         } catch {
+            if let supabaseError = error as? SupabaseError,
+               let statusCode = supabaseError.statusCode,
+               (200..<300).contains(statusCode) {
+                SyncLogger.logAuth("Signup created user - awaiting email confirmation")
+                currentProvider = .emailPassword
+                persistProvider(.emailPassword)
+                userEmail = email
+                state = .waitingForEmailConfirmation
+                persistPendingConfirmation(email: email)
+                return
+            }
+            
             SyncLogger.logAuth("Email signup failed: \(error.localizedDescription)", level: .error)
             state = .unauthenticated
             throw AuthEngineError.signupFailed(error.localizedDescription)
         }
+    }
+
+    // MARK: - Email Confirmation
+
+    /// Resend email confirmation link.
+    func resendEmailConfirmation(to email: String? = nil) async throws {
+        let targetEmail = (email?.isEmpty == false) ? email : userEmail
+        guard let targetEmail, !targetEmail.isEmpty else {
+            throw AuthEngineError.missingEmailForConfirmation
+        }
+        
+        try await supabase.resendConfirmationEmail(email: targetEmail)
+        SyncLogger.logAuth("Resent email confirmation to \(targetEmail)")
     }
     
     // MARK: - Logout
@@ -260,17 +349,33 @@ final class AuthEngine: ObservableObject {
         
         // 2. Clear all local auth state
         clearAuthState()
+        clearPendingConfirmation()
         
         // 3. Transition to unauthenticated
         state = .unauthenticated
         
         SyncLogger.logAuth("Logout complete - fully unauthenticated")
     }
+
+    /// Hard purge of all local auth state after server-side account deletion.
+    /// Does NOT attempt server-side recovery.
+    func purgeLocalStateAfterDeletion() {
+        SyncLogger.logAuth("Purging local auth state after deletion")
+        supabase.clearSession(preserveLocalState: false)
+        clearAuthState()
+        clearPendingConfirmation()
+        state = .unauthenticated
+    }
     
     // MARK: - Session Management
     
     /// Validates the current session. Returns false if invalid.
     func validateSession() async -> Bool {
+        if state == .waitingForEmailConfirmation {
+            SyncLogger.logAuth("Session validation failed: email not confirmed")
+            return false
+        }
+        
         guard supabase.isAuthenticated else {
             SyncLogger.logAuth("Session validation failed: not authenticated")
             return false
@@ -325,12 +430,47 @@ final class AuthEngine: ObservableObject {
         userEmail = nil
         UserDefaults.standard.removeObject(forKey: providerKey)
     }
+
+    private func persistPendingConfirmation(email: String?) {
+        UserDefaults.standard.set(true, forKey: confirmationPendingKey)
+        if let email {
+            UserDefaults.standard.set(email, forKey: confirmationPendingEmailKey)
+        }
+    }
+
+    private func clearPendingConfirmation() {
+        UserDefaults.standard.removeObject(forKey: confirmationPendingKey)
+        UserDefaults.standard.removeObject(forKey: confirmationPendingEmailKey)
+    }
+
+    private var isConfirmationPending: Bool {
+        UserDefaults.standard.bool(forKey: confirmationPendingKey)
+    }
+
+    private var pendingConfirmationEmail: String? {
+        UserDefaults.standard.string(forKey: confirmationPendingEmailKey)
+    }
+
+    private func isEmailConfirmed(_ user: SupabaseUser, provider: AuthProvider?) -> Bool {
+        if provider != .emailPassword {
+            return true
+        }
+        if let confirmedAt = user.emailConfirmedAt ?? user.confirmedAt {
+            return !confirmedAt.isEmpty
+        }
+        return false
+    }
     
     // MARK: - Helpers
     
     /// Returns true if currently authenticated
     var isAuthenticated: Bool {
         state == .authenticated
+    }
+
+    /// Returns true if email confirmation is pending
+    var isWaitingForEmailConfirmation: Bool {
+        state == .waitingForEmailConfirmation
     }
     
     /// Blocks execution until auth is resolved
@@ -351,6 +491,7 @@ enum AuthEngineError: Error, LocalizedError {
     case refreshFailed
     case crossProviderRejected(AuthProvider)
     case sessionInvalid
+    case missingEmailForConfirmation
     
     var errorDescription: String? {
         switch self {
@@ -368,6 +509,8 @@ enum AuthEngineError: Error, LocalizedError {
             return "This account uses \(provider.rawValue) login. Please use that method."
         case .sessionInvalid:
             return "Session is invalid. Please log in again."
+        case .missingEmailForConfirmation:
+            return "Email address is required to resend confirmation."
         }
     }
 }

@@ -85,6 +85,10 @@ final class NotificationEngine {
     }
 
     func syncAllNotifications(modelContext: ModelContext) async {
+        guard RuntimeGuard.requireAuthenticatedRunning() else {
+            await cancelAllNotifications(reason: "lifecycle-block")
+            return
+        }
         guard authGate.isAuthenticated else {
             SyncLogger.logNotification("Notification sync blocked: not authenticated", level: .warning)
             await cancelAllNotifications(reason: "auth-block")
@@ -115,6 +119,10 @@ final class NotificationEngine {
     }
 
     func syncTaskNotifications(for goal: GoalModel) async {
+        guard RuntimeGuard.requireAuthenticatedRunning() else {
+            await cancelTaskNotifications(forGoalId: goal.id)
+            return
+        }
         guard authGate.isAuthenticated else {
             await cancelTaskNotifications(forGoalId: goal.id)
             SyncLogger.logNotification("Task notifications blocked: not authenticated (\(goal.id.uuidString))", level: .warning)
@@ -439,6 +447,10 @@ final class NotificationEngine {
 
     /// Returns whether notifications can be scheduled (permission + auth + global enabled).
     func canScheduleNotifications() async -> Bool {
+        guard RuntimeGuard.requireAuthenticatedRunning() else {
+            SyncLogger.logNotification("Cannot schedule: lifecycle/auth invalid", level: .warning)
+            return false
+        }
         guard authGate.isAuthenticated else {
             SyncLogger.logNotification("Cannot schedule: not authenticated", level: .warning)
             return false
@@ -458,6 +470,10 @@ final class NotificationEngine {
     // MARK: - Report Sync with Dynamic Data
 
     func syncReportNotifications(modelContext: ModelContext) async {
+        guard RuntimeGuard.requireAuthenticatedRunning() else {
+            await cancelReportNotifications()
+            return
+        }
         let settings = ReportNotificationStore.settings()
         guard settings.hasEnabledReport else { return }
 

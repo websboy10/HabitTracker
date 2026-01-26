@@ -138,6 +138,9 @@ struct HabitTrackerApp: App {
                 }
                 if newState == .running {
                     Task { @MainActor in
+                        // Ensure snapshots are generated for past months
+                        await SnapshotService.shared.ensureSnapshotsGenerated(in: modelContainer.mainContext)
+                        
                         await NotificationEngine.shared.syncAllNotifications(modelContext: modelContainer.mainContext)
                     }
                 }

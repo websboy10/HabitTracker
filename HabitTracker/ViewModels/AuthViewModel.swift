@@ -3,6 +3,11 @@ import AuthenticationServices
 import CryptoKit
 import SwiftData
 
+enum EmailConfirmationState: Equatable {
+    case none
+    case waiting
+}
+
 @Observable
 final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
 
@@ -12,6 +17,7 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
     var password: String = ""
     var isLoading: Bool = false
     var errorMessage: String?
+    var emailConfirmationState: EmailConfirmationState = .none
     
     // Apple Sign In
     var currentNonce: String?
@@ -22,6 +28,11 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
     // MARK: - Dependencies
     
     private let authEngine = AuthEngine.shared
+    
+    override init() {
+        super.init()
+        syncEmailConfirmationState()
+    }
 
     // MARK: - Actions
 
@@ -103,6 +114,15 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
 
         Task {
             await performPasswordReset()
+        }
+    }
+
+    func resendConfirmationEmail() {
+        isLoading = true
+        errorMessage = nil
+        
+        Task {
+            await performResendConfirmation()
         }
     }
     
@@ -217,21 +237,26 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
         do {
             // Use AuthEngine as single authority
             try await authEngine.loginWithApple(idToken: idToken, nonce: nonce)
-            SyncLogger.logAuth("Apple login successful via AuthViewModel")
+            if authEngine.isWaitingForEmailConfirmation {
+                SyncLogger.logAuth("Apple login pending email confirmation via AuthViewModel")
+            } else {
+                SyncLogger.logAuth("Apple login successful via AuthViewModel")
+            }
             
             guard let context = self.modelContext else {
                  SyncLogger.logAuth("Apple Login: Missing ModelContext", level: .error)
                  return
             }
             
-            // Hand off to Session Manager
-            await AppSessionManager.shared.loginSuccess(modelContext: context)
+            // Hand off to Session Manager (auth-state reconciliation)
+            await AppSessionManager.shared.handleAuthStateChange(modelContext: context)
             
         } catch let error as AuthEngineError {
             errorMessage = error.localizedDescription
         } catch {
             errorMessage = friendlyErrorMessage(from: error, fallback: "Sign in with Apple failed. Please try again.")
         }
+        syncEmailConfirmationState()
         isLoading = false
     }
 
@@ -245,27 +270,36 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
         do {
             // Use AuthEngine as single authority
             try await authEngine.loginWithEmail(email: email, password: password)
-            SyncLogger.logAuth("Email login successful via AuthViewModel")
+            if authEngine.isWaitingForEmailConfirmation {
+                SyncLogger.logAuth("Email login pending confirmation via AuthViewModel")
+            } else {
+                SyncLogger.logAuth("Email login successful via AuthViewModel")
+            }
             
             guard let context = self.modelContext else {
                  SyncLogger.logAuth("Login: Missing ModelContext", level: .error)
                  return
             }
             
-            // Hand off to Session Manager
-            await AppSessionManager.shared.loginSuccess(modelContext: context)
+            // Hand off to Session Manager (auth-state reconciliation)
+            await AppSessionManager.shared.handleAuthStateChange(modelContext: context)
             
             // Clear fields on success
-            email = ""
-            password = ""
+            if authEngine.isAuthenticated {
+                email = ""
+                password = ""
+            }
         } catch let error as AuthEngineError {
             SyncLogger.logAuth("Email login failed: \(error.localizedDescription)", level: .error)
             errorMessage = error.localizedDescription
+            emailConfirmationState = .none
         } catch {
             let friendly = friendlyErrorMessage(from: error, fallback: "Unable to log in. Please try again.")
             SyncLogger.logAuth("Email login failed: \(friendly)", level: .error)
             errorMessage = friendly
+            emailConfirmationState = .none
         }
+        syncEmailConfirmationState()
     }
 
     @MainActor
@@ -277,27 +311,36 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
         do {
             // Use AuthEngine as single authority
             try await authEngine.signUpWithEmail(email: email, password: password)
-            SyncLogger.logAuth("Email signup successful via AuthViewModel")
+            if authEngine.isWaitingForEmailConfirmation {
+                SyncLogger.logAuth("Email signup pending confirmation via AuthViewModel")
+            } else {
+                SyncLogger.logAuth("Email signup successful via AuthViewModel")
+            }
             
             guard let context = self.modelContext else {
                  SyncLogger.logAuth("Signup: Missing ModelContext", level: .error)
                  return
             }
             
-            // Hand off to Session Manager - Explicit Onboarding
-            await AppSessionManager.shared.startOnboarding(modelContext: context)
+            // Hand off to Session Manager (auth-state reconciliation)
+            await AppSessionManager.shared.handleAuthStateChange(modelContext: context)
             
             // Clear fields on success
-            email = ""
-            password = ""
+            if authEngine.isAuthenticated {
+                email = ""
+                password = ""
+            }
         } catch let error as AuthEngineError {
             SyncLogger.logAuth("Email signup failed: \(error.localizedDescription)", level: .error)
             errorMessage = error.localizedDescription
+            emailConfirmationState = .none
         } catch {
             let friendly = friendlyErrorMessage(from: error, fallback: "Unable to create account. Please try again.")
             SyncLogger.logAuth("Email signup failed: \(friendly)", level: .error)
             errorMessage = friendly
+            emailConfirmationState = .none
         }
+        syncEmailConfirmationState()
     }
 
     @MainActor
@@ -310,6 +353,20 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
         } catch {
             errorMessage = friendlyErrorMessage(from: error, fallback: "Unable to send reset email. Please try again.")
         }
+    }
+
+    @MainActor
+    private func performResendConfirmation() async {
+        defer { isLoading = false }
+        
+        do {
+            try await authEngine.resendEmailConfirmation(to: email)
+        } catch let error as AuthEngineError {
+            errorMessage = error.localizedDescription
+        } catch {
+            errorMessage = friendlyErrorMessage(from: error, fallback: "Unable to resend confirmation. Please try again.")
+        }
+        syncEmailConfirmationState()
     }
 
     // MARK: - Error Handling
@@ -334,5 +391,9 @@ final class AuthViewModel: NSObject, ASAuthorizationControllerDelegate, ASAuthor
             }
         }
         return fallback
+    }
+
+    private func syncEmailConfirmationState() {
+        emailConfirmationState = authEngine.isWaitingForEmailConfirmation ? .waiting : .none
     }
 }

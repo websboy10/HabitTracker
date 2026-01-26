@@ -16,6 +16,7 @@ final class WeeklyNoteService {
     private init() {}
 
     func preloadNotes(year: Int, month: Int, modelContext: ModelContext) async {
+        guard RuntimeGuard.requireAuthenticatedRunning() else { return }
         await supabase.awaitSessionInitialization()
         guard supabase.isAuthenticated, let userId = supabase.currentUserId else { return }
 
@@ -71,6 +72,7 @@ final class WeeklyNoteService {
     }
 
     func loadNote(year: Int, month: Int, weekIndex: Int, modelContext: ModelContext) async -> WeeklyNoteModel? {
+        guard RuntimeGuard.requireAuthenticatedRunning() else { return nil }
         if let local = fetchLocalNote(year: year, month: month, weekIndex: weekIndex, modelContext: modelContext) {
             return local
         }
@@ -81,6 +83,7 @@ final class WeeklyNoteService {
     }
 
     func saveNote(year: Int, month: Int, weekIndex: Int, text: String, modelContext: ModelContext) async {
+        guard RuntimeGuard.requireAuthenticatedRunning() else { return }
         let now = Date()
         let note = fetchLocalNote(year: year, month: month, weekIndex: weekIndex, modelContext: modelContext)
         let local = note ?? WeeklyNoteModel(year: year, month: month, weekIndex: weekIndex)

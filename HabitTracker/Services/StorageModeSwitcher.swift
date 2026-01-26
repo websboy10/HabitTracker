@@ -44,6 +44,10 @@ final class StorageModeSwitcher: ObservableObject {
             throw StorageModeError.transitionFailed("Already in cloud mode")
         }
         
+        guard RuntimeGuard.requireAuthenticatedRunning() else {
+            throw StorageModeError.transitionFailed("Lifecycle/auth invalid")
+        }
+        
         guard supabase.isAuthenticated, let userId = supabase.currentUserId else {
             throw StorageModeError.transitionFailed("Not authenticated")
         }
@@ -89,6 +93,7 @@ final class StorageModeSwitcher: ObservableObject {
     /// Switches from CLOUD to LOCAL mode.
     /// Stops all cloud writes immediately.
     func switchToLocal() async {
+        guard RuntimeGuard.requireAuthenticatedRunning() else { return }
         guard StorageMode.current == .cloud else { return }
         
         isTransitioning = true

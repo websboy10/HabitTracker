@@ -41,6 +41,9 @@ struct SettingsView: View {
     @State private var showingResetConfirmation = false
     @State private var showingExportSheet = false
     @State private var exportURL: URL?
+    @State private var exportState: ExportState = .loading
+    @State private var exportNotice: String?
+    @State private var showingShareSheet = false
     
     // Account management state
     @State private var showingLogoutConfirmation = false
@@ -122,9 +125,7 @@ struct SettingsView: View {
             notificationSettingsSheet
         }
         .sheet(isPresented: $showingExportSheet) {
-            if let url = exportURL {
-                ShareSheet(activityItems: [url])
-            }
+            exportSheet
         }
         .overlay {
             // Reset Data Confirmation
@@ -588,6 +589,21 @@ struct SettingsView: View {
                     Task { await handleReportToggleChange(.monthly, enabled: newValue) }
                 }
         }
+        .presentationDetents([.height(520), .large])
+    }
+
+    // MARK: - Export Sheet
+
+    private var exportSheet: some View {
+        ExportSheetView(
+            state: exportState,
+            exportNotice: $exportNotice,
+            exportURL: exportURL,
+            showingShareSheet: $showingShareSheet,
+            onPrepare: { await prepareExport() },
+            onExport: { exportNow() },
+            onClose: { showingExportSheet = false }
+        )
         .presentationDetents([.height(520), .large])
     }
 
@@ -1178,100 +1194,260 @@ struct SettingsView: View {
     // MARK: - Data Management
     
     private func exportData() {
-        let date = Date()
+        exportState = .loading
+        exportNotice = nil
+        exportURL = nil
+        showingExportSheet = true
+    }
+
+    @MainActor
+    private func prepareExport() async {
+        exportNotice = nil
+        exportURL = nil
+
+        if let reason = exportUnavailableReason() {
+            exportState = .unavailable(reason)
+            return
+        }
+
+        let plan = buildExportPlan()
+
+        guard !plan.includedMonths.isEmpty || plan.goalsCount > 0 || plan.notesCount > 0 else {
+            exportState = .unavailable(.noData)
+            return
+        }
+
+        for month in plan.archivedMonths {
+            guard SnapshotService.shared.fetchSnapshot(
+                year: month.year,
+                month: month.month,
+                in: modelContext
+            ) != nil else {
+                exportState = .error("An archived month could not be loaded.")
+                return
+            }
+        }
+
+        exportState = .ready(plan)
+    }
+
+    @MainActor
+    private func exportNow() {
+        guard case .ready(let plan) = exportState else { return }
+
+        if AuthEngine.shared.state != .authenticated {
+            exportState = .unavailable(.unauthenticated)
+            return
+        }
+
+        if AppSessionManager.shared.state != .running {
+            exportState = .unavailable(.lifecycleInactive)
+            return
+        }
+
+        if AppSessionManager.shared.securityLock {
+            exportState = .unavailable(.securityLocked)
+            return
+        }
+
+        _ = RuntimeGuard.requireAuthenticatedRunning()
+
+        do {
+            let url = try buildExportFile(from: plan)
+            exportURL = url
+            showingShareSheet = true
+            exportNotice = "Export file is ready."
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                self.exportNotice = nil
+            }
+        } catch {
+            exportState = .error("We couldn't prepare the export file.")
+        }
+    }
+
+    private func exportUnavailableReason() -> ExportUnavailableReason? {
+        if AuthEngine.shared.state != .authenticated {
+            return .unauthenticated
+        }
+        if AppSessionManager.shared.state != .running {
+            return .lifecycleInactive
+        }
+        if AppSessionManager.shared.securityLock {
+            return .securityLocked
+        }
+        return nil
+    }
+
+    @MainActor
+    private func buildExportPlan() -> ExportPlan {
+        let now = Date()
+        let calendar = Calendar.current
+        let currentYear = calendar.component(.year, from: now)
+        let currentMonth = calendar.component(.month, from: now)
+
+        let liveMonth = ExportMonth(year: currentYear, month: currentMonth, status: .live)
+
+        let snapshotDescriptor = FetchDescriptor<SnapshotModel>(sortBy: [
+            SortDescriptor(\.year, order: .reverse),
+            SortDescriptor(\.month, order: .reverse)
+        ])
+        let snapshots = (try? modelContext.fetch(snapshotDescriptor)) ?? []
+
+        var archivedMonths = snapshots
+            .filter { $0.status == .available }
+            .map { ExportMonth(year: $0.year, month: $0.month, status: .archived) }
+            .filter { !$0.matches(liveMonth) }
+
+        var excludedMonths = snapshots
+            .filter { $0.status == .missingData }
+            .map { ExportMonth(year: $0.year, month: $0.month, status: .missing) }
+
+        archivedMonths.sort { $0.sortKey > $1.sortKey }
+        excludedMonths.sort { $0.sortKey > $1.sortKey }
+
+        let goalsCount = (try? modelContext.fetchCount(FetchDescriptor<GoalModel>())) ?? 0
+        let notesCount = (try? modelContext.fetchCount(FetchDescriptor<WeeklyNoteModel>())) ?? 0
+
+        return ExportPlan(
+            liveMonth: liveMonth,
+            archivedMonths: archivedMonths,
+            excludedMonths: excludedMonths,
+            generatedAt: now,
+            goalsCount: goalsCount,
+            notesCount: notesCount
+        )
+    }
+
+    @MainActor
+    private func buildExportFile(from plan: ExportPlan) throws -> URL {
+        let content = try buildExportContent(from: plan)
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd_HHmm"
+        let stamp = dateFormatter.string(from: plan.generatedAt)
+        let filename = "HabitTracker_Export_\(stamp).txt"
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+        try content.write(to: tempURL, atomically: true, encoding: .utf8)
+        return tempURL
+    }
+
+    @MainActor
+    private func buildExportContent(from plan: ExportPlan) throws -> String {
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .long
         dateFormatter.timeStyle = .short
-        
-        let header = """
+
+        var output = """
         HABIT TRACKER DATA EXPORT
-        Generated: \(dateFormatter.string(from: date))
+        Generated: \(dateFormatter.string(from: plan.generatedAt))
         User: \(settings.userName)
-        
+
         ==================================================
+
+        EXPORT SCOPE
         """
-        
-        // 1. Fetch Goals (Tasks)
-        var goalsSection = "\n\n--- YOUR TASKS ---\n"
+
+        output += "\nIncluded Months:\n"
+        for month in plan.includedMonths {
+            output += "- \(month.label) (\(month.statusLabel))\n"
+        }
+
+        if !plan.excludedMonths.isEmpty {
+            output += "\nExcluded Months (Archived data unavailable):\n"
+            for month in plan.excludedMonths {
+                output += "- \(month.label)\n"
+            }
+        }
+
+        // Goals
+        output += "\n\n--- YOUR TASKS ---\n"
         let goalsDescriptor = FetchDescriptor<GoalModel>(sortBy: [SortDescriptor(\.createdAt)])
         if let goals = try? modelContext.fetch(goalsDescriptor), !goals.isEmpty {
             for goal in goals {
-                goalsSection += "- \(goal.title)\n"
-                goalsSection += "  Frequency: \(goal.recurrenceText)\n"
+                output += "- \(goal.title)\n"
+                output += "  Frequency: \(goal.recurrenceText)\n"
                 if let time = goal.timeText {
-                    goalsSection += "  Time: \(time)\n"
+                    output += "  Time: \(time)\n"
                 }
-                goalsSection += "  Status: \(goal.status.capitalized)\n"
-                goalsSection += "\n"
+                output += "  Status: \(goal.status.capitalized)\n"
+                output += "\n"
             }
         } else {
-            goalsSection += "No tasks found.\n"
+            output += "No tasks found.\n"
         }
-        
-        // 2. Fetch Weekly Notes
-        var notesSection = "\n--- WEEKLY NOTES ---\n"
+
+        // Weekly Notes
+        output += "\n--- WEEKLY NOTES ---\n"
         let notesDescriptor = FetchDescriptor<WeeklyNoteModel>(sortBy: [
             SortDescriptor(\.year, order: .reverse),
             SortDescriptor(\.month, order: .reverse),
             SortDescriptor(\.weekIndex, order: .reverse)
         ])
-        
+
         if let notes = try? modelContext.fetch(notesDescriptor), !notes.isEmpty {
             for note in notes {
-                // Determine month name for header
                 let monthName = DateFormatter().monthSymbols[note.month - 1]
-                notesSection += "Week \(note.weekIndex), \(monthName) \(note.year)\n"
-                notesSection += "----------------------------\n"
-                notesSection += note.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                notesSection += "\n\n"
+                output += "Week \(note.weekIndex), \(monthName) \(note.year)\n"
+                output += "----------------------------\n"
+                output += note.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                output += "\n\n"
             }
         } else {
-            notesSection += "No weekly notes found.\n"
+            output += "No weekly notes found.\n"
         }
-        
-        // 3. Calculate Stats
-        // We need to use StatsCalculator. Since we are in a View, we are on MainActor.
-        let calculator = StatsCalculator(modelContext: modelContext)
-        var statsSection = "\n--- STATISTICS ---\n"
-        
-        // Yearly Stats
-        let yearly = calculator.yearlyStats()
-        statsSection += "Yearly Completion: \(yearly.displayText)\n"
-        
-        // Monthly Stats
-        let monthly = calculator.monthProgress()
-        statsSection += "Current Month (\(monthly.monthName) \(monthly.year)):\n"
-        statsSection += "  Completion: \(Int(monthly.completedPercent * 100))%\n"
-        statsSection += "  Completed: \(monthly.completed)\n"
-        statsSection += "  Missed: \(monthly.missed)\n"
-        
-        // Lifetime Missed
-        let missed = calculator.lifetimeMissed()
-        statsSection += "\nLifetime Missed Obligations: \(missed)\n"
-        
-        // Consistency Table
-        statsSection += "\nGoal Consistency:\n"
-        let consistency = calculator.goalConsistencyTable()
-        if !consistency.isEmpty {
-            for entry in consistency {
-                statsSection += "- \(entry.title): \(Int(entry.consistency * 100))%\n"
+
+        // Monthly Summaries
+        output += "\n--- MONTHLY SUMMARY ---\n"
+        let statsCalculator = StatsCalculator(modelContext: modelContext)
+
+        for month in plan.includedMonths {
+            output += "\n\(month.label) (\(month.statusLabel))\n"
+            output += "----------------------------\n"
+
+            if month.status == .live {
+                let stats = statsCalculator.monthProgress(for: month.date)
+                output += "Completion: \(Int(stats.completedPercent * 100))%\n"
+                output += "Completed: \(stats.completed)\n"
+                output += "Missed: \(stats.missed)\n"
+                output += "Total: \(stats.totalObligations)\n"
+
+                let ledger = statsCalculator.monthlyWeekLedger(for: month.date)
+                output += "Weekly Ledger:\n"
+                if ledger.isEmpty {
+                    output += "- No weekly data\n"
+                } else {
+                    for entry in ledger {
+                        let status = entry.passed ? "Passed" : "Incomplete"
+                        output += "- Week \(entry.weekNumber): \(entry.completed)/\(entry.totalObligations) (\(status))\n"
+                    }
+                }
+            } else {
+                guard let snapshot = SnapshotService.shared.fetchSnapshot(
+                    year: month.year,
+                    month: month.month,
+                    in: modelContext
+                ) else {
+                    throw ExportPreparationError.missingSnapshot(month)
+                }
+
+                let stats = snapshot.stats
+                output += "Completion: \(Int(stats.completedPercent * 100))%\n"
+                output += "Completed: \(stats.completed)\n"
+                output += "Missed: \(stats.missed)\n"
+                output += "Total: \(stats.totalObligations)\n"
+
+                output += "Weekly Ledger:\n"
+                if snapshot.ledger.isEmpty {
+                    output += "- No weekly data\n"
+                } else {
+                    for entry in snapshot.ledger {
+                        let status = entry.passed ? "Passed" : "Incomplete"
+                        output += "- Week \(entry.week): \(entry.completed)/\(entry.total) (\(status))\n"
+                    }
+                }
             }
-        } else {
-            statsSection += "No consistency data available.\n"
         }
-        
-        // Assemble Final Text
-        let finalOutput = header + goalsSection + notesSection + statsSection
-        
-        // Write to file
-        do {
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("HabitTracker_Export.txt")
-            try finalOutput.write(to: tempURL, atomically: true, encoding: .utf8)
-            exportURL = tempURL
-            showingExportSheet = true
-        } catch {
-            print("Export failed: \(error)")
-        }
+
+        return output
     }
     
     private func resetAllData() {
@@ -1402,6 +1578,347 @@ struct GlassCardMuted<Content: View>: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(Color.white.opacity(0.03), lineWidth: 1)
+            )
+    }
+}
+
+// MARK: - Export Models
+
+private enum ExportState: Equatable {
+    case loading
+    case ready(ExportPlan)
+    case unavailable(ExportUnavailableReason)
+    case error(String)
+}
+
+private enum ExportUnavailableReason: Equatable {
+    case unauthenticated
+    case lifecycleInactive
+    case securityLocked
+    case noData
+
+    var title: String {
+        switch self {
+        case .unauthenticated:
+            return "Sign in required"
+        case .lifecycleInactive:
+            return "Export unavailable"
+        case .securityLocked:
+            return "Export unavailable"
+        case .noData:
+            return "No exportable data"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .unauthenticated:
+            return "You must be signed in to export data."
+        case .lifecycleInactive:
+            return "Export is unavailable while the app is not running."
+        case .securityLocked:
+            return "Export is unavailable while the app is locked."
+        case .noData:
+            return "No months are eligible for export."
+        }
+    }
+}
+
+private enum ExportPreparationError: Error {
+    case missingSnapshot(ExportMonth)
+}
+
+private struct ExportPlan: Equatable {
+    let liveMonth: ExportMonth
+    let archivedMonths: [ExportMonth]
+    let excludedMonths: [ExportMonth]
+    let generatedAt: Date
+    let goalsCount: Int
+    let notesCount: Int
+
+    var includedMonths: [ExportMonth] {
+        [liveMonth] + archivedMonths
+    }
+}
+
+private struct ExportMonth: Identifiable, Hashable {
+    let year: Int
+    let month: Int
+    let status: ExportMonthStatus
+
+    var id: String { String(format: "%04d-%02d", year, month) }
+
+    var sortKey: Int { year * 100 + month }
+
+    var date: Date {
+        Calendar.current.date(from: DateComponents(year: year, month: month, day: 1)) ?? Date()
+    }
+
+    var label: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter.string(from: date)
+    }
+
+    var statusLabel: String {
+        switch status {
+        case .live:
+            return "Live"
+        case .archived:
+            return "Archived"
+        case .missing:
+            return "Unavailable"
+        }
+    }
+
+    func matches(_ other: ExportMonth) -> Bool {
+        year == other.year && month == other.month
+    }
+}
+
+private enum ExportMonthStatus: Equatable {
+    case live
+    case archived
+    case missing
+}
+
+// MARK: - Export Sheet View
+
+private struct ExportSheetView: View {
+    let state: ExportState
+    @Binding var exportNotice: String?
+    let exportURL: URL?
+    @Binding var showingShareSheet: Bool
+    let onPrepare: () async -> Void
+    let onExport: () -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                AppMaterials.moodGradient.ignoresSafeArea()
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: AppSpacing.lg) {
+                        content
+                    }
+                    .padding(AppSpacing.screenHorizontal)
+                    .padding(.top, AppSpacing.md)
+                    .padding(.bottom, AppSpacing.xl)
+                }
+            }
+            .navigationTitle("Export")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { onClose() }
+                        .foregroundColor(AppColors.primary)
+                }
+            }
+            .toolbarBackground(.hidden, for: .navigationBar)
+            .task {
+                await onPrepare()
+            }
+            .sheet(isPresented: $showingShareSheet) {
+                if let url = exportURL {
+                    ShareSheet(activityItems: [url])
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch state {
+        case .loading:
+            loadingView
+        case .ready(let plan):
+            readyView(plan: plan)
+        case .unavailable(let reason):
+            unavailableView(reason: reason)
+        case .error(let message):
+            errorView(message: message)
+        }
+    }
+
+    private var loadingView: some View {
+        GlassCard {
+            VStack(spacing: AppSpacing.md) {
+                ProgressView()
+                    .tint(AppColors.primary)
+                Text("Preparing Export")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(AppColors.textPrimary)
+                Text("Validating session and collecting exportable months…")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(AppColors.textMuted)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(AppSpacing.lg)
+        }
+    }
+
+    private func readyView(plan: ExportPlan) -> some View {
+        VStack(spacing: AppSpacing.lg) {
+            GlassCard {
+                VStack(alignment: .leading, spacing: AppSpacing.md) {
+                    Text("Export Summary")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(AppColors.textPrimary)
+
+                    Text("Includes goals, weekly notes, and monthly summaries for the months below.")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(AppColors.textSecondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(AppSpacing.lg)
+            }
+
+            GlassCard {
+                VStack(alignment: .leading, spacing: AppSpacing.md) {
+                    Text("Included Months")
+                        .font(AppTypography.caption)
+                        .textCase(.uppercase)
+                        .tracking(1.2)
+                        .foregroundColor(AppColors.textSecondary)
+
+                    VStack(spacing: 10) {
+                        ForEach(plan.includedMonths) { month in
+                            exportMonthRow(month: month, tint: month.status == .live ? AppColors.primary : AppColors.textMuted)
+                        }
+                    }
+                }
+                .padding(AppSpacing.lg)
+            }
+
+            if !plan.excludedMonths.isEmpty {
+                GlassCardMuted {
+                    VStack(alignment: .leading, spacing: AppSpacing.md) {
+                        Text("Excluded Months")
+                            .font(AppTypography.caption)
+                            .textCase(.uppercase)
+                            .tracking(1.2)
+                            .foregroundColor(AppColors.textSecondary)
+
+                        Text("Archived data unavailable")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(AppColors.textMuted)
+
+                        VStack(spacing: 10) {
+                            ForEach(plan.excludedMonths) { month in
+                                exportMonthRow(month: month, tint: AppColors.textMuted)
+                            }
+                        }
+                    }
+                    .padding(AppSpacing.lg)
+                }
+            }
+
+            VStack(spacing: AppSpacing.sm) {
+                Button(action: onExport) {
+                    HStack {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("Export")
+                            .font(.system(size: 14, weight: .semibold))
+                        Spacer()
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(AppColors.primary.opacity(0.9))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(AppColors.primary.opacity(0.3), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(showingShareSheet)
+
+                if let exportNotice {
+                    Text(exportNotice)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(AppColors.textSecondary)
+                }
+            }
+        }
+    }
+
+    private func unavailableView(reason: ExportUnavailableReason) -> some View {
+        GlassCardMuted {
+            VStack(spacing: AppSpacing.md) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(AppColors.textMuted)
+
+                Text(reason.title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(AppColors.textPrimary)
+
+                Text(reason.message)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(AppColors.textMuted)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(AppSpacing.lg)
+        }
+    }
+
+    private func errorView(message: String) -> some View {
+        GlassCardMuted {
+            VStack(spacing: AppSpacing.md) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(Color.red.opacity(0.8))
+
+                Text("Export Failed")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(AppColors.textPrimary)
+
+                Text(message)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(AppColors.textMuted)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(AppSpacing.lg)
+        }
+    }
+
+    private func exportMonthRow(month: ExportMonth, tint: Color) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(month.label)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(AppColors.textPrimary)
+                Text(month.statusLabel)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(tint)
+            }
+            Spacer()
+            exportStatusBadge(text: month.statusLabel, tint: tint)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func exportStatusBadge(text: String, tint: Color) -> some View {
+        Text(text)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundColor(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.08))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
             )
     }
 }

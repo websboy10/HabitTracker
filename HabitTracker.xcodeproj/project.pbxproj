@@ -52,6 +52,12 @@
 		1A000085286D400000000065 /* WeeklyNoteModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000084286D400000000064 /* WeeklyNoteModel.swift */; };
 		1A000087286D400000000067 /* WeeklyNoteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000086286D400000000066 /* WeeklyNoteSheet.swift */; };
 		1A000089286D400000000069 /* WeekOverviewCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000088286D400000000068 /* WeekOverviewCard.swift */; };
+		2C876D8EFB2A3FA670837B5A /* ArchivedDataIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF01FA9E1D6240CDA0600363 /* ArchivedDataIndicator.swift */; };
+		D1347120363C2B310653F610 /* MissingSnapshotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69853FC208E384B34801168A /* MissingSnapshotView.swift */; };
+		CD18FC9FB6494384932AF3BD /* SnapshotModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D382729BD51E13C68BF56155 /* SnapshotModel.swift */; };
+		A6FE8102C0FA7A26774E22AF /* SnapshotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A83E50FD9BC840E2A1847FB9 /* SnapshotService.swift */; };
+		3993A69E2CA7956518F22441 /* SnapshotDataTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B49CD206A577ECD1CD15E285 /* SnapshotDataTypes.swift */; };
+		4283FEFC63F0CD0E873A0000 /* SupabaseConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6D07EF7B77E90D3593AD699 /* SupabaseConfig.swift */; };
 		1A0000A0286D400000000070 /* NotificationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000A1286D400000000071 /* NotificationEngine.swift */; };
 		1A0000B0286D400000000080 /* AuthEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000B1286D400000000081 /* AuthEngine.swift */; };
 		1A0000B2286D400000000082 /* StorageMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000B3286D400000000083 /* StorageMode.swift */; };
@@ -126,7 +132,13 @@
 		1A000084286D400000000064 /* WeeklyNoteModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyNoteModel.swift; sourceTree = "<group>"; };
 		1A000086286D400000000066 /* WeeklyNoteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyNoteSheet.swift; sourceTree = "<group>"; };
 		1A000088286D400000000068 /* WeekOverviewCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekOverviewCard.swift; sourceTree = "<group>"; };
+		EF01FA9E1D6240CDA0600363 /* ArchivedDataIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchivedDataIndicator.swift; sourceTree = "<group>"; };
+		69853FC208E384B34801168A /* MissingSnapshotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissingSnapshotView.swift; sourceTree = "<group>"; };
 		1A0000A1286D400000000071 /* NotificationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationEngine.swift; sourceTree = "<group>"; };
+		D382729BD51E13C68BF56155 /* SnapshotModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotModel.swift; sourceTree = "<group>"; };
+		A83E50FD9BC840E2A1847FB9 /* SnapshotService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotService.swift; sourceTree = "<group>"; };
+		B49CD206A577ECD1CD15E285 /* SnapshotDataTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotDataTypes.swift; sourceTree = "<group>"; };
+		C6D07EF7B77E90D3593AD699 /* SupabaseConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseConfig.swift; sourceTree = "<group>"; };
 		1A0000B1286D400000000081 /* AuthEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthEngine.swift; sourceTree = "<group>"; };
 		1A0000B3286D400000000083 /* StorageMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageMode.swift; sourceTree = "<group>"; };
 		1A0000B5286D400000000085 /* SyncLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncLogger.swift; sourceTree = "<group>"; };
@@ -216,6 +228,8 @@
 				1A00005B286D40000000003A /* SettingsComponents.swift */,
 				1A000086286D400000000066 /* WeeklyNoteSheet.swift */,
 				1A000088286D400000000068 /* WeekOverviewCard.swift */,
+				EF01FA9E1D6240CDA0600363 /* ArchivedDataIndicator.swift */,
+				69853FC208E384B34801168A /* MissingSnapshotView.swift */,
 				1A0000C3286D400000000093 /* ResetScrollView.swift */,
 			);
 			path = Components;
@@ -262,6 +276,9 @@
 			children = (
 				1A000055286D400000000035 /* ProgressCalculator.swift */,
 				1A000075286D400000000054 /* StatsCalculator.swift */,
+				A83E50FD9BC840E2A1847FB9 /* SnapshotService.swift */,
+				B49CD206A577ECD1CD15E285 /* SnapshotDataTypes.swift */,
+				C6D07EF7B77E90D3593AD699 /* SupabaseConfig.swift */,
 				1A00005D286D40000000003B /* HapticManager.swift */,
 				1A0000A1286D400000000071 /* NotificationEngine.swift */,
 				1A00006F286D40000000004E /* SupabaseService.swift */,
@@ -290,6 +307,7 @@
 				1A00004B286D400000000030 /* GoalModel.swift */,
 				1A000076286D400000000055 /* ObligationModel.swift */,
 				1A000084286D400000000064 /* WeeklyNoteModel.swift */,
+				D382729BD51E13C68BF56155 /* SnapshotModel.swift */,
 			);
 			path = SwiftData;
 			sourceTree = "<group>";
@@ -428,6 +446,8 @@
 				1A000085286D400000000065 /* WeeklyNoteModel.swift in Sources */,
 				1A000087286D400000000067 /* WeeklyNoteSheet.swift in Sources */,
 				1A000089286D400000000069 /* WeekOverviewCard.swift in Sources */,
+				2C876D8EFB2A3FA670837B5A /* ArchivedDataIndicator.swift in Sources */,
+				D1347120363C2B310653F610 /* MissingSnapshotView.swift in Sources */,
 				1A0000B0286D400000000080 /* AuthEngine.swift in Sources */,
 				1A0000B2286D400000000082 /* StorageMode.swift in Sources */,
 				1A0000B4286D400000000084 /* SyncLogger.swift in Sources */,
@@ -438,6 +458,10 @@
 				1A0000BE286D40000000008E /* NavigationLogger.swift in Sources */,
 				1A0000C0286D400000000090 /* CalendarService.swift in Sources */,
 				1A0000C2286D400000000092 /* ResetScrollView.swift in Sources */,
+				CD18FC9FB6494384932AF3BD /* SnapshotModel.swift in Sources */,
+				A6FE8102C0FA7A26774E22AF /* SnapshotService.swift in Sources */,
+				3993A69E2CA7956518F22441 /* SnapshotDataTypes.swift in Sources */,
+				4283FEFC63F0CD0E873A0000 /* SupabaseConfig.swift in Sources */,
 				1A0000C4286D400000000094 /* AppDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

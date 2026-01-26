@@ -18,6 +18,7 @@ struct StatsView: View {
     // Observe model changes to trigger re-renders when data is deleted/added
     @Query private var obligations: [ObligationModel]
     @Query private var goals: [GoalModel]
+    @Query private var snapshots: [SnapshotModel]
 
     var body: some View {
         let _ = obligations.count + goals.count
@@ -142,76 +143,99 @@ struct StatsView: View {
     // MARK: - Section 2: Month Progress
 
     private var monthProgressSection: some View {
-        let stats = statsCalculator?.monthProgress(for: selectedMonth) ?? MonthProgressStats(
-            completedPercent: 0,
-            totalObligations: 0,
-            completed: 0,
-            missed: 0,
-            pending: 0
-        )
+        let stats: MonthProgressStats? = {
+            if isCurrentMonth {
+                return statsCalculator?.monthProgress(for: selectedMonth) ?? fallbackMonthStats
+            }
+
+            guard let snapshotData else { return nil }
+            return snapshotData.stats.toMonthProgressStats(monthDate: selectedMonth)
+        }()
 
         return VStack(alignment: .leading, spacing: AppSpacing.md) {
             // Month selector header
-            monthSelectorHeader(stats: stats)
+            monthSelectorHeader()
 
-            GlassCard {
-                VStack(spacing: AppSpacing.lg) {
-                    monthCompletionGauge(value: stats.completedPercent)
+            if let stats {
+                GlassCard {
+                    VStack(spacing: AppSpacing.lg) {
+                        monthCompletionGauge(value: stats.completedPercent)
 
-                    HStack {
-                        monthStatItem(value: stats.completed, label: "COMPLETED")
-                        Spacer()
-                        monthStatItem(value: stats.missed, label: "MISSED")
-                        Spacer()
-                        monthStatItem(value: stats.pending, label: "PENDING")
+                        HStack {
+                            monthStatItem(value: stats.completed, label: "COMPLETED")
+                            Spacer()
+                            monthStatItem(value: stats.missed, label: "MISSED")
+                            Spacer()
+                            monthStatItem(value: stats.pending, label: "PENDING")
+                        }
+                        
+                        // Calendar busy days indicator (disabled - CalendarService not in project)
+                        // if calendarService.isAuthorized && stats.busyDaysCount > 0 {
+                        //     Divider()
+                        //         .background(Color.white.opacity(0.1))
+                        //
+                        //     HStack(spacing: 6) {
+                        //         Image(systemName: "calendar")
+                        //             .font(.system(size: 11, weight: .medium))
+                        //             .foregroundColor(AppColors.textMuted)
+                        //
+                        //         Text("\(stats.busyDaysCount) day\(stats.busyDaysCount == 1 ? "" : "s") with calendar events")
+                        //             .font(.system(size: 10, weight: .medium))
+                        //             .foregroundColor(AppColors.textSecondary)
+                        //     }
+                        // }
                     }
-                    
-                    // Calendar busy days indicator (disabled - CalendarService not in project)
-                    // if calendarService.isAuthorized && stats.busyDaysCount > 0 {
-                    //     Divider()
-                    //         .background(Color.white.opacity(0.1))
-                    //
-                    //     HStack(spacing: 6) {
-                    //         Image(systemName: "calendar")
-                    //             .font(.system(size: 11, weight: .medium))
-                    //             .foregroundColor(AppColors.textMuted)
-                    //
-                    //         Text("\(stats.busyDaysCount) day\(stats.busyDaysCount == 1 ? "" : "s") with calendar events")
-                    //             .font(.system(size: 10, weight: .medium))
-                    //             .foregroundColor(AppColors.textSecondary)
-                    //     }
-                    // }
+                    .padding(AppSpacing.lg)
                 }
-                .padding(AppSpacing.lg)
+            } else {
+                MissingSnapshotView()
             }
         }
     }
     
-    private func monthSelectorHeader(stats: MonthProgressStats) -> some View {
+    private func monthSelectorHeader() -> some View {
         HStack {
             Text("THIS MONTH")
                 .font(AppTypography.caption)
                 .textCase(.uppercase)
                 .tracking(1.2)
                 .foregroundColor(AppColors.textSecondary)
+
+            if isCurrentMonth {
+                LiveBadge()
+            } else {
+                ArchivedBadge(detail: "\(selectedMonthName) \(selectedYear)")
+            }
             
             Spacer()
             
             // Month dropdown
             Menu {
-                ForEach(0..<12, id: \.self) { monthsAgo in
-                    let monthDate = Calendar.current.date(byAdding: .month, value: -monthsAgo, to: Date()) ?? Date()
-                    let formatter = DateFormatter()
-                    let _ = (formatter.dateFormat = "MMMM yyyy")
-                    
+                ForEach(monthOptions) { option in
                     Button(action: {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            selectedMonth = monthDate
+                            selectedMonth = option.date
                         }
                     }) {
                         HStack {
-                            Text(formatter.string(from: monthDate))
-                            if Calendar.current.isDate(monthDate, equalTo: selectedMonth, toGranularity: .month) {
+                            Text(option.label)
+                            Spacer()
+
+                            if option.isCurrentMonth {
+                                Text("Live")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundColor(AppColors.primary)
+                            } else if availableSnapshotKeys.contains(option.id) {
+                                Text("Archived")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundColor(AppColors.textMuted)
+                            } else {
+                                Text("No Data")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundColor(AppColors.textMuted)
+                            }
+
+                            if option.id == selectedMonthKey {
                                 Image(systemName: "checkmark")
                             }
                         }
@@ -219,12 +243,12 @@ struct StatsView: View {
                 }
             } label: {
                 HStack(spacing: 6) {
-                    Text(stats.monthName.uppercased())
+                    Text(selectedMonthName.uppercased())
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(AppColors.primary)
                         .tracking(1)
                     
-                    Text(String(stats.year))
+                    Text(String(selectedYear))
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundColor(AppColors.textMuted)
                     
@@ -457,6 +481,102 @@ struct StatsView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d, yyyy"
         return formatter.string(from: date)
+    }
+
+    // MARK: - Month Helpers
+
+    private var isCurrentMonth: Bool {
+        Calendar.current.isDate(selectedMonth, equalTo: Date(), toGranularity: .month)
+    }
+
+    private var selectedYear: Int {
+        Calendar.current.component(.year, from: selectedMonth)
+    }
+
+    private var selectedMonthName: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM"
+        return formatter.string(from: selectedMonth)
+    }
+
+    private var selectedMonthKey: String {
+        String(format: "%04d-%02d", selectedYear, Calendar.current.component(.month, from: selectedMonth))
+    }
+
+    private var fallbackMonthStats: MonthProgressStats {
+        MonthProgressStats(
+            completedPercent: 0,
+            totalObligations: 0,
+            completed: 0,
+            missed: 0,
+            pending: 0,
+            monthName: selectedMonthName,
+            year: selectedYear
+        )
+    }
+
+    private var snapshotData: SnapshotData? {
+        guard !isCurrentMonth else { return nil }
+        return SnapshotService.shared.fetchSnapshot(
+            year: selectedYear,
+            month: Calendar.current.component(.month, from: selectedMonth),
+            in: modelContext
+        )
+    }
+
+    private var availableSnapshotKeys: Set<String> {
+        Set(
+            snapshots
+                .filter { $0.status == .available }
+                .map(\.compositeKey)
+        )
+    }
+
+    private var monthOptions: [MonthOption] {
+        let calendar = Calendar.current
+        let now = Date()
+        var options: [MonthOption] = []
+
+        for monthsAgo in 0..<12 {
+            guard let date = calendar.date(byAdding: .month, value: -monthsAgo, to: now) else { continue }
+            let comps = calendar.dateComponents([.year, .month], from: date)
+            if let year = comps.year, let month = comps.month {
+                options.append(MonthOption(year: year, month: month))
+            }
+        }
+
+        let snapshotOptions = snapshots
+            .filter { $0.status == .available }
+            .map { MonthOption(year: $0.year, month: $0.month) }
+
+        for option in snapshotOptions where !options.contains(option) {
+            options.append(option)
+        }
+
+        return options.sorted { $0.id > $1.id }
+    }
+
+    private struct MonthOption: Identifiable, Hashable {
+        let year: Int
+        let month: Int
+
+        var id: String {
+            String(format: "%04d-%02d", year, month)
+        }
+
+        var date: Date {
+            Calendar.current.date(from: DateComponents(year: year, month: month, day: 1)) ?? Date()
+        }
+
+        var label: String {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMMM yyyy"
+            return formatter.string(from: date)
+        }
+
+        var isCurrentMonth: Bool {
+            Calendar.current.isDate(date, equalTo: Date(), toGranularity: .month)
+        }
     }
 
     // MARK: - Bottom Navigation

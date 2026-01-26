@@ -74,6 +74,52 @@ enum RuntimeGuard {
         
         return true
     }
+
+    /// Requires authenticated auth state AND lifecycle running.
+    /// Optionally allows operations when the AppSessionManager is security-locked.
+    @MainActor
+    @discardableResult
+    static func requireAuthenticatedRunning(
+        allowWhenLocked: Bool = false,
+        file: String = #file,
+        function: String = #function,
+        line: Int = #line
+    ) -> Bool {
+        guard AuthEngine.shared.state == .authenticated else {
+            let context = "\(file):\(line) in \(function)"
+            SyncLogger.log("GUARD VIOLATION: Authenticated state required", category: .auth, level: .error)
+            
+            #if DEBUG
+            fatalError("RuntimeGuard.requireAuthenticatedRunning failed at \(context): auth=\(AuthEngine.shared.state.rawValue)")
+            #else
+            return false
+            #endif
+        }
+        
+        guard AppSessionManager.shared.state == .running else {
+            let context = "\(file):\(line) in \(function)"
+            SyncLogger.log("GUARD VIOLATION: Lifecycle running required, got \(AppSessionManager.shared.state.rawValue)", category: .sync, level: .error)
+            
+            #if DEBUG
+            fatalError("RuntimeGuard.requireAuthenticatedRunning failed at \(context): state=\(AppSessionManager.shared.state.rawValue)")
+            #else
+            return false
+            #endif
+        }
+        
+        if AppSessionManager.shared.securityLock && !allowWhenLocked {
+            let context = "\(file):\(line) in \(function)"
+            SyncLogger.log("GUARD VIOLATION: Security lock active", category: .sync, level: .error)
+            
+            #if DEBUG
+            fatalError("RuntimeGuard.requireAuthenticatedRunning failed at \(context): securityLock=true")
+            #else
+            return false
+            #endif
+        }
+        
+        return true
+    }
     
     // MARK: - Storage Mode Guards
     
@@ -159,7 +205,7 @@ enum RuntimeGuard {
             return false
         }
         
-        guard requireAuth(file: file, function: function, line: line) else {
+        guard requireAuthenticatedRunning(file: file, function: function, line: line) else {
             return false
         }
         

@@ -19,6 +19,7 @@ struct HomeView: View {
     @Query private var obligations: [ObligationModel]
     @Query private var goals: [GoalModel]
     @Query private var weeklyNotes: [WeeklyNoteModel]
+    @Query private var snapshots: [SnapshotModel]
     
     // Calendar service for busy day awareness (disabled - not in project)
     // @StateObject private var calendarService = CalendarService.shared
@@ -41,8 +42,10 @@ struct HomeView: View {
                         .padding(.bottom, AppSpacing.xl)
 
                     // SECTION 2: Today's Obligations
-                    todayObligationsSection
-                        .padding(.bottom, AppSpacing.xl)
+                    if isCurrentMonth {
+                        todayObligationsSection
+                            .padding(.bottom, AppSpacing.xl)
+                    }
 
                     // SECTION 3: This Week
                     thisWeekSection
@@ -212,7 +215,7 @@ struct HomeView: View {
                         ObligationCard(
                             obligation: item.obligation,
                             goal: item.goal,
-                            canToggle: viewModel.canToggleObligation(item.obligation)
+                            canToggle: isCurrentMonth && viewModel.canToggleObligation(item.obligation)
                         ) {
                             withAnimation(AppAnimation.standard) {
                                 viewModel.completeObligation(item.obligation)
@@ -250,16 +253,31 @@ struct HomeView: View {
     // MARK: - Section 3: This Month
 
     private var thisWeekSection: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.md) {
+        let snapshotData = snapshotData
+
+        return VStack(alignment: .leading, spacing: AppSpacing.md) {
             monthSelectorHeader
 
-            WeekOverviewCard(
-                weeklyProgress: viewModel.monthlyWeekProgress(for: selectedMonth),
-                monthlyTotals: viewModel.monthlyTotals(for: selectedMonth),
-                monthDate: selectedMonth,
-                weeksWithNotes: weeksWithNotes
-            ) { weekIndex in
-                selectedWeekForNote = weekIndex
+            if isCurrentMonth {
+                WeekOverviewCard(
+                    weeklyProgress: viewModel.monthlyWeekProgress(for: selectedMonth),
+                    monthlyTotals: viewModel.monthlyTotals(for: selectedMonth),
+                    monthDate: selectedMonth,
+                    weeksWithNotes: weeksWithNotes
+                ) { weekIndex in
+                    selectedWeekForNote = weekIndex
+                }
+            } else if let snapshotData {
+                WeekOverviewCard(
+                    weeklyProgress: snapshotData.ledger.toWeeklyProgress(),
+                    monthlyTotals: snapshotData.stats.monthlyTotals,
+                    monthDate: selectedMonth,
+                    weeksWithNotes: weeksWithNotes
+                ) { weekIndex in
+                    selectedWeekForNote = weekIndex
+                }
+            } else {
+                MissingSnapshotView()
             }
         }
     }
@@ -283,22 +301,40 @@ struct HomeView: View {
                 .tracking(1.2)
                 .foregroundColor(AppColors.textSecondary)
 
+            if isCurrentMonth {
+                LiveBadge()
+            } else {
+                ArchivedBadge()
+            }
+
             Spacer()
 
             Menu {
-                ForEach(0..<12, id: \.self) { monthsAgo in
-                    let monthDate = Calendar.current.date(byAdding: .month, value: -monthsAgo, to: Date()) ?? Date()
-                    let formatter = DateFormatter()
-                    let _ = (formatter.dateFormat = "MMMM yyyy")
-
+                ForEach(monthOptions) { option in
                     Button(action: {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            selectedMonth = monthDate
+                            selectedMonth = option.date
                         }
                     }) {
                         HStack {
-                            Text(formatter.string(from: monthDate))
-                            if Calendar.current.isDate(monthDate, equalTo: selectedMonth, toGranularity: .month) {
+                            Text(option.label)
+                            Spacer()
+
+                            if option.isCurrentMonth {
+                                Text("Live")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundColor(AppColors.primary)
+                            } else if availableSnapshotKeys.contains(option.id) {
+                                Text("Archived")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundColor(AppColors.textMuted)
+                            } else {
+                                Text("No Data")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundColor(AppColors.textMuted)
+                            }
+
+                            if option.id == selectedMonthKey {
                                 Image(systemName: "checkmark")
                             }
                         }
@@ -337,6 +373,80 @@ struct HomeView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMMM"
         return formatter.string(from: selectedMonth)
+    }
+
+    // MARK: - Month Helpers
+
+    private var isCurrentMonth: Bool {
+        Calendar.current.isDate(selectedMonth, equalTo: Date(), toGranularity: .month)
+    }
+
+    private var selectedMonthKey: String {
+        String(format: "%04d-%02d", selectedYear, selectedMonthIndex)
+    }
+
+    private var snapshotData: SnapshotData? {
+        guard !isCurrentMonth else { return nil }
+        return SnapshotService.shared.fetchSnapshot(
+            year: selectedYear,
+            month: selectedMonthIndex,
+            in: modelContext
+        )
+    }
+
+    private var availableSnapshotKeys: Set<String> {
+        Set(
+            snapshots
+                .filter { $0.status == .available }
+                .map(\.compositeKey)
+        )
+    }
+
+    private var monthOptions: [MonthOption] {
+        let calendar = Calendar.current
+        let now = Date()
+        var options: [MonthOption] = []
+
+        for monthsAgo in 0..<12 {
+            guard let date = calendar.date(byAdding: .month, value: -monthsAgo, to: now) else { continue }
+            let comps = calendar.dateComponents([.year, .month], from: date)
+            if let year = comps.year, let month = comps.month {
+                options.append(MonthOption(year: year, month: month))
+            }
+        }
+
+        let snapshotOptions = snapshots
+            .filter { $0.status == .available }
+            .map { MonthOption(year: $0.year, month: $0.month) }
+
+        for option in snapshotOptions where !options.contains(option) {
+            options.append(option)
+        }
+
+        return options.sorted { $0.id > $1.id }
+    }
+
+    private struct MonthOption: Identifiable, Hashable {
+        let year: Int
+        let month: Int
+
+        var id: String {
+            String(format: "%04d-%02d", year, month)
+        }
+
+        var date: Date {
+            Calendar.current.date(from: DateComponents(year: year, month: month, day: 1)) ?? Date()
+        }
+
+        var label: String {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMMM yyyy"
+            return formatter.string(from: date)
+        }
+
+        var isCurrentMonth: Bool {
+            Calendar.current.isDate(date, equalTo: Date(), toGranularity: .month)
+        }
     }
 
     private func preloadNotesForSelectedMonth() {

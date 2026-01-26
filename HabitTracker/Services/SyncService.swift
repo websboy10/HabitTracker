@@ -16,6 +16,9 @@ final class SyncService: ObservableObject {
     @Published private(set) var lastSyncDate: Date?
     @Published private(set) var syncError: String?
     @Published private(set) var lastSyncSucceeded: Bool = false
+    @Published private(set) var isFrozen: Bool = false
+    private var allowWhenLockedForSync: Bool = false
+    private var cancelRequested: Bool = false
     
     // MARK: - Storage Mode
     
@@ -44,38 +47,63 @@ final class SyncService: ObservableObject {
     
     /// Perform a full bidirectional sync
     /// Cloud is the source of truth - cloud always wins on conflicts
-    func performFullSync(modelContext: ModelContext) async {
+    func performFullSync(modelContext: ModelContext, allowWhenLocked: Bool = false) async {
+        guard !isFrozen else {
+            SyncLogger.logSync("Sync blocked: frozen", level: .warning)
+            return
+        }
+        if cancelRequested {
+            SyncLogger.logSync("Sync canceled before start", level: .warning)
+            return
+        }
         // RuntimeGuard: Validate sync conditions (cloud mode + auth)
-        guard RuntimeGuard.requireSyncConditions() else {
+        guard StorageMode.isCloud else { return }
+        guard RuntimeGuard.requireAuthenticatedRunning(allowWhenLocked: allowWhenLocked) else {
             syncError = "Sync conditions not met"
             SyncLogger.logSync("Sync blocked by RuntimeGuard", level: .error)
             return
         }
         
-        // Ensure authoritative phase: Allow .synchronizing or .running
-        let state = AppSessionManager.shared.state
-        guard state == .synchronizing || state == .running else { return }
-        
         isSyncing = true
+        allowWhenLockedForSync = allowWhenLocked
+        defer { allowWhenLockedForSync = false }
         syncError = nil
         SyncLogger.logSync("Starting full sync")
         
         do {
-            // Replay any pending mutations first
-            let mutationQueue = MutationQueue.shared
-            if mutationQueue.hasPending {
-                SyncLogger.logSync("Replaying \(mutationQueue.pendingCount) pending mutations")
-                try await mutationQueue.replay(using: self)
+            let syncWork: () async throws -> Void = {
+                if self.cancelRequested { throw CancellationError() }
+                // Replay any pending mutations first
+                let mutationQueue = MutationQueue.shared
+                if mutationQueue.hasPending {
+                    SyncLogger.logSync("Replaying \(mutationQueue.pendingCount) pending mutations")
+                    try await mutationQueue.replay(using: self)
+                }
+                
+                if self.cancelRequested { throw CancellationError() }
+                // Sync goals
+                try await self.syncGoals(modelContext: modelContext)
+                
+                if self.cancelRequested { throw CancellationError() }
+                // Sync completions (via obligation status)
+                try await self.syncObligations(modelContext: modelContext)
+                
+                if self.cancelRequested { throw CancellationError() }
+                // Sync weekly notes
+                try await self.syncWeeklyNotes(modelContext: modelContext)
+                
+                if self.cancelRequested { throw CancellationError() }
+                // Sync snapshots
+                try await self.syncSnapshots(modelContext: modelContext)
             }
             
-            // Sync goals
-            try await syncGoals(modelContext: modelContext)
-            
-            // Sync completions (via obligation status)
-            try await syncObligations(modelContext: modelContext)
-            
-            // Sync weekly notes
-            try await syncWeeklyNotes(modelContext: modelContext)
+            if allowWhenLocked {
+                try await supabase.withSecurityBypass {
+                    try await syncWork()
+                }
+            } else {
+                try await syncWork()
+            }
             
             // Update last sync time
             lastSyncDate = Date()
@@ -84,12 +112,17 @@ final class SyncService: ObservableObject {
             SyncLogger.logSync("Full sync completed successfully")
             
         } catch {
-            syncError = error.localizedDescription
-            lastSyncSucceeded = false
-            SyncLogger.logSync("Sync error: \(error.localizedDescription)", level: .error)
+            if error is CancellationError {
+                SyncLogger.logSync("Sync canceled", level: .warning)
+            } else {
+                syncError = error.localizedDescription
+                lastSyncSucceeded = false
+                SyncLogger.logSync("Sync error: \(error.localizedDescription)", level: .error)
+            }
         }
         
         isSyncing = false
+        cancelRequested = false
     }
     
     // MARK: - Goal Sync
@@ -250,6 +283,8 @@ final class SyncService: ObservableObject {
 
     /// Sync a single goal creation to cloud
     func syncGoalCreation(_ goal: GoalModel) async {
+        guard !isFrozen else { return }
+        guard RuntimeGuard.requireAuthenticatedRunning() else { return }
         guard AppSessionManager.shared.state == .running else { return }
         guard isCloudSyncEnabled else { return }
         guard let userId = supabase.currentUserId else { return }
@@ -280,6 +315,8 @@ final class SyncService: ObservableObject {
     
     /// Sync a goal update to cloud
     func syncGoalUpdate(_ goal: GoalModel) async {
+        guard !isFrozen else { return }
+        guard RuntimeGuard.requireAuthenticatedRunning() else { return }
         guard AppSessionManager.shared.state == .running else { return }
         guard isCloudSyncEnabled else { return }
         guard let userId = supabase.currentUserId else { return }
@@ -310,6 +347,8 @@ final class SyncService: ObservableObject {
     
     /// Sync a goal deletion to cloud
     func syncGoalDeletion(_ goalId: UUID) async {
+        guard !isFrozen else { return }
+        guard RuntimeGuard.requireAuthenticatedRunning() else { return }
         guard AppSessionManager.shared.state == .running else { return }
         guard isCloudSyncEnabled else { return }
         do {
@@ -347,6 +386,8 @@ final class SyncService: ObservableObject {
     
     /// Sync settings from local to cloud
     func syncSettingsToCloud(settings: SettingsStore) async {
+        guard !isFrozen else { return }
+        guard RuntimeGuard.requireAuthenticatedRunning() else { return }
         guard AppSessionManager.shared.state == .running else { return }
         // Settings are always synced
         guard let userId = supabase.currentUserId else { return }
@@ -375,6 +416,8 @@ final class SyncService: ObservableObject {
     
     /// Sync settings from cloud to local
     func syncSettingsFromCloud(settings: SettingsStore) async {
+        guard !isFrozen else { return }
+        guard RuntimeGuard.requireAuthenticatedRunning() else { return }
         // Settings are always synced
         do {
             guard let remote = try await supabase.getSettings() else { return }
@@ -409,6 +452,8 @@ final class SyncService: ObservableObject {
     
     /// Sync profile to cloud
     func syncProfileToCloud(name: String, title: String, age: Int? = nil, userGoal: String? = nil) async throws {
+        guard !isFrozen else { return }
+        guard RuntimeGuard.requireAuthenticatedRunning() else { return }
         guard AppSessionManager.shared.state == .running else { return }
         guard isCloudSyncEnabled else { return }
         guard let userId = supabase.currentUserId else { return }
@@ -426,6 +471,8 @@ final class SyncService: ObservableObject {
     
     /// Sync profile from cloud to local settings
     func syncProfileFromCloud(settings: SettingsStore) async {
+        guard !isFrozen else { return }
+        guard RuntimeGuard.requireAuthenticatedRunning() else { return }
         guard isCloudSyncEnabled else { return }
         do {
             guard let profile = try await supabase.getProfile() else { return }
@@ -444,6 +491,8 @@ final class SyncService: ObservableObject {
     // MARK: - Obligation Sync
     
     func syncObligationUpdate(_ obligation: ObligationModel) async {
+        guard !isFrozen else { return }
+        guard RuntimeGuard.requireAuthenticatedRunning() else { return }
         guard AppSessionManager.shared.state == .running else { return }
         guard isCloudSyncEnabled else { return }
         guard let userId = supabase.currentUserId else { return }
@@ -615,6 +664,72 @@ final class SyncService: ObservableObject {
         
         try modelContext.save()
     }
+
+    // MARK: - Snapshot Sync
+    
+    private func syncSnapshots(modelContext: ModelContext) async throws {
+        guard let userId = supabase.currentUserId else { return }
+        
+        // 1. Fetch remote snapshots
+        let remoteSnapshots = try await supabase.getSnapshots()
+        
+        // 2. Fetch local snapshots
+        let descriptor = FetchDescriptor<SnapshotModel>()
+        let localSnapshots = try modelContext.fetch(descriptor)
+        
+        let localDict = Dictionary(uniqueKeysWithValues: localSnapshots.map { ($0.compositeKey, $0) })
+        let remoteDict = Dictionary(uniqueKeysWithValues: remoteSnapshots.map { ("\($0.year)-\(String(format: "%02d", $0.month))", $0) })
+        
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        
+        // 3. Cloud Wins strategy
+        for snapshot in remoteSnapshots {
+            let key = String(format: "%04d-%02d", snapshot.year, snapshot.month)
+            
+            if localDict[key] == nil {
+                // Create local
+                // Note: snapshot.stats is typed struct now, need to encode to Data
+                let statsData = try encoder.encode(snapshot.stats)
+                let ledgerData = try encoder.encode(snapshot.ledger)
+                
+                let local = SnapshotModel(
+                    id: UUID(uuidString: snapshot.id ?? "") ?? UUID(),
+                    userId: UUID(uuidString: snapshot.userId) ?? UUID(),
+                    year: snapshot.year,
+                    month: snapshot.month,
+                    statsJSON: statsData,
+                    ledgerJSON: ledgerData,
+                    status: .available,
+                    createdAt: snapshot.createdAt.flatMap { iso8601Formatter.date(from: $0) } ?? Date()
+                )
+                modelContext.insert(local)
+            }
+        }
+        
+        // 4. Upload Local Snapshots (if missing on remote)
+        for local in localSnapshots {
+            // Check status: only upload available snapshots.
+            // Missing data placeholders stay local.
+            if remoteDict[local.compositeKey] == nil && local.status == .available {
+                let stats = try decoder.decode(StatsPayload.self, from: local.statsJSON)
+                let ledger = try decoder.decode([LedgerEntryPayload].self, from: local.ledgerJSON)
+                
+                let dto = SnapshotDTO(
+                    id: local.id.uuidString,
+                    userId: userId,
+                    year: local.year,
+                    month: local.month,
+                    stats: stats,
+                    ledger: ledger,
+                    createdAt: iso8601Formatter.string(from: local.createdAt)
+                )
+                _ = try await supabase.upsertSnapshot(dto)
+            }
+        }
+        
+        try modelContext.save()
+    }
     
     // MARK: - Apply Remote Goal Helper
     
@@ -642,7 +757,7 @@ final class SyncService: ObservableObject {
 
 extension SyncService: MutationSyncHandler {
     func isAuthenticated() async -> Bool {
-        supabase.isAuthenticated
+        return RuntimeGuard.requireAuthenticatedRunning(allowWhenLocked: allowWhenLockedForSync)
     }
     
     func sync(_ mutation: PendingMutation) async throws {
@@ -670,5 +785,26 @@ extension SyncService: MutationSyncHandler {
         case .weeklyNote:
             SyncLogger.logQueue("Syncing weekly note mutation: \(mutation.operationType.rawValue)")
         }
+    }
+}
+
+// MARK: - Sync Freeze Control
+
+extension SyncService {
+    func freezeSync(reason: String) {
+        isFrozen = true
+        cancelRequested = true
+        SyncLogger.logSync("Sync frozen: \(reason)")
+    }
+    
+    func unfreezeSync(reason: String) {
+        isFrozen = false
+        cancelRequested = false
+        SyncLogger.logSync("Sync unfrozen: \(reason)")
+    }
+
+    func cancelInFlight(reason: String) {
+        cancelRequested = true
+        SyncLogger.logSync("Sync cancel requested: \(reason)")
     }
 }

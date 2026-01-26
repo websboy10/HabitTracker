@@ -23,6 +23,8 @@ final class AppSessionManager: ObservableObject {
     static let shared = AppSessionManager()
     
     @Published var state: AppLifecycleState = .startup
+    @Published private(set) var authState: AuthState = .unauthenticated
+    @Published private(set) var securityLock: Bool = false
     
     // Publish changes for UI routing
     var isReady: Bool { state == .running }
@@ -35,6 +37,12 @@ final class AppSessionManager: ObservableObject {
     func initialize(modelContext: ModelContext) async {
         SyncLogger.logAuth("AppSessionManager initializing")
         state = .startup
+        securityLock = true
+        setSharedModelContext(modelContext)
+
+        if handlePendingDeletionIfNeeded(modelContext: modelContext) {
+            return
+        }
         
         // 1. Resolve storage mode before any data operations
         StorageMode.resolve()
@@ -46,19 +54,13 @@ final class AppSessionManager: ObservableObject {
         let authState = await AuthEngine.shared.resolve()
         
         // 4. Map auth state to app lifecycle state
-        switch authState {
-        case .authenticated:
-            SyncLogger.logAuth("Auth resolved: authenticated")
-            await restoreSession(modelContext: modelContext)
-        case .invalid:
-            SyncLogger.logAuth("Auth resolved: invalid - requires re-login")
-            await NotificationEngine.shared.cancelAllNotifications(reason: "auth-invalid")
-            state = .unauthenticated
-        case .unauthenticated, .authenticating:
-            SyncLogger.logAuth("Auth resolved: unauthenticated")
-            await NotificationEngine.shared.cancelAllNotifications(reason: "auth-unauthenticated")
-            state = .unauthenticated
-        }
+        await applyAuthState(authState, modelContext: modelContext)
+    }
+
+    /// Reconcile app lifecycle after an auth attempt completes.
+    func handleAuthStateChange(modelContext: ModelContext) async {
+        let latest = AuthEngine.shared.state
+        await applyAuthState(latest, modelContext: modelContext)
     }
     
     /// Transitions a returning user from Auth -> Ready
@@ -68,8 +70,9 @@ final class AppSessionManager: ObservableObject {
         // 0. Security: User Data Isolation Check
         await verifySessionSecurity(modelContext: modelContext)
         
-        // 1. Identity Phase
-        state = .restoringIdentity
+        // 1. Lock operations until lifecycle is fully ready
+        lockSecurityOperations(reason: "restore-session")
+        state = .running
         do {
             // Force pull profile & settings (Bypass local)
             if let profile = try await SupabaseService.shared.getProfileForAuth() {
@@ -88,8 +91,8 @@ final class AppSessionManager: ObservableObject {
                         applyRemoteSettings(settings)
                     }
                     
-                    // 2. Content Phase
-                    state = .synchronizing
+                    // 2. Content Phase (sync in running state)
+                    await performInitialSyncIfNeeded(modelContext: modelContext)
                 } else {
                     print("⚠️ RESTORE: Profile exists but incomplete (no name). Checking local fallback.")
                     checkLocalOnboardingFallback()
@@ -103,13 +106,16 @@ final class AppSessionManager: ObservableObject {
             print("❌ RESTORE FAILED: \(error)")
             // Fallback
             if UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
-                // If we are offline but have local data, we assume we can run
-                // But we must be careful about sync.
-                // For now, let's treat as running (offline mode)
                 state = .running
+                await performInitialSyncIfNeeded(modelContext: modelContext)
             } else {
                 state = .unauthenticated
             }
+        }
+        
+        if state == .running {
+            SyncService.shared.unfreezeSync(reason: "restore-session-complete")
+            unlockSecurityOperations(reason: "restore-session-complete")
         }
     }
     
@@ -125,6 +131,7 @@ final class AppSessionManager: ObservableObject {
         // Security check for new signups (prevents leaking previous user data)
         await verifySessionSecurity(modelContext: modelContext)
         
+        unlockSecurityOperations(reason: "start-onboarding")
         state = .onboarding
         await NotificationEngine.shared.requestAuthorizationAfterSignup()
     }
@@ -171,11 +178,16 @@ final class AppSessionManager: ObservableObject {
     /// Called when onboarding completes
     func completeOnboarding() {
         state = .running
+        SyncService.shared.unfreezeSync(reason: "complete-onboarding")
+        unlockSecurityOperations(reason: "complete-onboarding")
     }
     
     /// Start logout process - Freezes Sync
     func beginLogout() {
         print("🛑 LOGOUT: Initiating tear down... Sync Frozen.")
+        lockSecurityOperations(reason: "begin-logout")
+        SyncService.shared.cancelInFlight(reason: "logout")
+        SyncService.shared.freezeSync(reason: "logout")
         state = .tearingDown
         Task { @MainActor in
             await NotificationEngine.shared.cancelAllNotifications(reason: "logout")
@@ -186,24 +198,42 @@ final class AppSessionManager: ObservableObject {
     /// If auth deletion fails, the operation fails entirely.
     func deleteAccount(modelContext: ModelContext? = nil) async throws {
         SyncLogger.logAccount("Starting account deletion")
-        beginLogout() // Freeze sync
+        lockSecurityOperations(reason: "delete-account")
+        SyncService.shared.cancelInFlight(reason: "delete-account")
+        SyncService.shared.freezeSync(reason: "delete-account")
         await NotificationEngine.shared.cancelAllNotifications(reason: "delete-account")
         
         do {
-            // 1. Delete Remote - MUST succeed
+            // 1. Revoke auth + delete server-side data (provider-agnostic)
             try await SupabaseService.shared.deleteAccount()
             SyncLogger.logAccount("Account deleted from Supabase")
+            UserDefaults.standard.set(true, forKey: "pendingAccountDeletion")
             
             // 2. Wipe all local data
-            await completeLogout(shouldWipe: true, modelContext: modelContext)
+            if let modelContext {
+                wipeAllSwiftData(modelContext: modelContext)
+            }
+            wipeAllLocalData()
             
-            // 3. Clear mutation queue
+            // 3. Clear auth/provider state
+            AuthEngine.shared.purgeLocalStateAfterDeletion()
+            authState = .unauthenticated
+            
+            // 4. Clear mutation queue
             MutationQueue.shared.clear()
+            
+            // 5. Finalize lifecycle
+            NotificationEngine.shared.clearNotificationSettingsOnLogout()
+            UserDefaults.standard.removeObject(forKey: "pendingAccountDeletion")
+            state = .unauthenticated
+            unlockSecurityOperations(reason: "delete-account-complete")
             
             SyncLogger.logAccount("Account deletion complete")
         } catch {
             // If deletion fails, abort - do not proceed with local wipe
             SyncLogger.logAccount("Account deletion failed: \(error.localizedDescription)", level: .error)
+            SyncService.shared.unfreezeSync(reason: "delete-account-failed")
+            unlockSecurityOperations(reason: "delete-account-failed")
             state = .running // Restore state
             throw error
         }
@@ -212,8 +242,10 @@ final class AppSessionManager: ObservableObject {
     /// Finish logout.
     /// - Parameter shouldWipe: If true, wipes all local data (Flow 6B). If false, keeps data (Flow 6A).
     func completeLogout(shouldWipe: Bool = false, modelContext: ModelContext? = nil) async {
+        SyncService.shared.freezeSync(reason: "logout-complete")
         // Use AuthEngine as single authority for logout
         await AuthEngine.shared.logout()
+        authState = .unauthenticated
         SyncLogger.logAuth("Logged out via AuthEngine")
         await NotificationEngine.shared.cancelAllNotifications(reason: "logout-complete")
 
@@ -233,6 +265,8 @@ final class AppSessionManager: ObservableObject {
             // NOTE: Notification settings (including report toggles) ARE cleared on logout
         }
 
+        MutationQueue.shared.clear()
+        unlockSecurityOperations(reason: "logout-complete")
         state = .unauthenticated
     }
     
@@ -288,10 +322,12 @@ final class AppSessionManager: ObservableObject {
     private func checkLocalOnboardingFallback() {
         if UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
             print("⚠️ RESTORE: Cloud profile missing/incomplete, but local onboarding complete. Trusting local.")
-            // Use .synchronizing so that SyncService can attempt to sync (and potentially repair profile if we added that logic)
-            // But if profile is missing, SyncService might fail partial syncs.
-            // However, allowing access is better than blocking.
-            state = .synchronizing
+            state = .running
+            Task { @MainActor in
+                if let modelContext = AppSessionManager.sharedModelContext {
+                    await performInitialSyncIfNeeded(modelContext: modelContext)
+                }
+            }
         } else {
             print("ℹ️ New User detected (or local onboarding incomplete). Redirecting to Onboarding.")
             state = .onboarding
@@ -299,5 +335,75 @@ final class AppSessionManager: ObservableObject {
                 _ = await NotificationEngine.shared.requestAuthorizationAfterSignup()
             }
         }
+    }
+
+    private func handlePendingDeletionIfNeeded(modelContext: ModelContext) -> Bool {
+        guard UserDefaults.standard.bool(forKey: "pendingAccountDeletion") else { return false }
+        SyncLogger.logAccount("Pending account deletion detected - finalizing local wipe")
+        wipeAllSwiftData(modelContext: modelContext)
+        wipeAllLocalData()
+        AuthEngine.shared.purgeLocalStateAfterDeletion()
+        MutationQueue.shared.clear()
+        NotificationEngine.shared.clearNotificationSettingsOnLogout()
+        UserDefaults.standard.removeObject(forKey: "pendingAccountDeletion")
+        securityLock = false
+        state = .unauthenticated
+        return true
+    }
+
+    // MARK: - Initial Sync
+
+    private static var sharedModelContext: ModelContext?
+    
+    func setSharedModelContext(_ modelContext: ModelContext) {
+        AppSessionManager.sharedModelContext = modelContext
+    }
+    
+    private func performInitialSyncIfNeeded(modelContext: ModelContext) async {
+        guard StorageMode.isCloud else { return }
+        await SyncService.shared.performFullSync(modelContext: modelContext, allowWhenLocked: true)
+    }
+
+    // MARK: - Auth State Mapping
+
+    private func applyAuthState(_ authState: AuthState, modelContext: ModelContext) async {
+        self.authState = authState
+        
+        switch authState {
+        case .authenticated:
+            SyncLogger.logAuth("Auth resolved: authenticated")
+            lockSecurityOperations(reason: "auth-resolved")
+            await restoreSession(modelContext: modelContext)
+        case .waitingForEmailConfirmation:
+            SyncLogger.logAuth("Auth resolved: waiting for email confirmation")
+            await NotificationEngine.shared.cancelAllNotifications(reason: "auth-email-confirmation")
+            SyncService.shared.freezeSync(reason: "auth-email-confirmation")
+            unlockSecurityOperations(reason: "email-confirmation")
+            state = .unauthenticated
+        case .invalid:
+            SyncLogger.logAuth("Auth resolved: invalid - requires re-login")
+            await NotificationEngine.shared.cancelAllNotifications(reason: "auth-invalid")
+            SyncService.shared.freezeSync(reason: "auth-invalid")
+            unlockSecurityOperations(reason: "auth-invalid")
+            state = .unauthenticated
+        case .unauthenticated, .authenticating:
+            SyncLogger.logAuth("Auth resolved: unauthenticated")
+            await NotificationEngine.shared.cancelAllNotifications(reason: "auth-unauthenticated")
+            SyncService.shared.freezeSync(reason: "auth-unauthenticated")
+            unlockSecurityOperations(reason: "auth-unauthenticated")
+            state = .unauthenticated
+        }
+    }
+
+    // MARK: - Security Lock
+
+    private func lockSecurityOperations(reason: String) {
+        securityLock = true
+        SyncLogger.logAuth("Security lock enabled: \(reason)")
+    }
+
+    private func unlockSecurityOperations(reason: String) {
+        securityLock = false
+        SyncLogger.logAuth("Security lock disabled: \(reason)")
     }
 }
