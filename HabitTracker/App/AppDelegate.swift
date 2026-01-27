@@ -32,6 +32,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // via widgets, shortcuts, or if time has passed since last app use.
         Task { @MainActor in
             guard AppSessionManager.shared.state == .running,
+                  !AppSessionManager.shared.securityLock,
                   let container = modelContainer else { return }
             await NotificationEngine.shared.syncReportNotifications(modelContext: container.mainContext)
         }

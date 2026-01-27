@@ -11,6 +11,7 @@ extension Int: @retroactive Identifiable {
 struct HomeView: View {
 
     @Environment(\.modelContext) private var modelContext
+    @StateObject private var session = AppSessionManager.shared
     @State private var viewModel = HomeViewModel()
     @Binding var selectedTab: Tab
     var showsCustomTabBar: Bool = true
@@ -27,6 +28,7 @@ struct HomeView: View {
     // Weekly note sheet state
     @State private var selectedWeekForNote: Int? = nil
     @State private var selectedMonth = Date()
+    @State private var snapshotDataCache: SnapshotData?
 
     var body: some View {
         let _ = obligations.count + goals.count
@@ -67,12 +69,22 @@ struct HomeView: View {
             NavigationLogger.shared.logViewAppear("HomeView")
             viewModel.configure(with: modelContext)
             preloadNotesForSelectedMonth()
+            refreshSnapshotData()
         }
         .onDisappear {
             NavigationLogger.shared.logViewDisappear("HomeView")
         }
+        .onChange(of: session.securityLock) { _, locked in
+            if !locked {
+                preloadNotesForSelectedMonth()
+            }
+        }
         .onChange(of: selectedMonth) { _, _ in
             preloadNotesForSelectedMonth()
+            refreshSnapshotData()
+        }
+        .onChange(of: snapshots) { _, _ in
+            refreshSnapshotData()
         }
         .sheet(item: $selectedWeekForNote) { weekIndex in
             WeeklyNoteSheet(
@@ -342,21 +354,20 @@ struct HomeView: View {
                 }
             } label: {
                 HStack(spacing: 6) {
-                    Text(monthLabel.uppercased())
+                    Text("\(monthLabel.uppercased()) \(selectedYear)")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(AppColors.primary)
                         .tracking(1)
-
-                    Text(String(selectedYear))
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(AppColors.textMuted)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
+                        .layoutPriority(1)
 
                     Image(systemName: "chevron.down")
                         .font(.system(size: 8, weight: .bold))
                         .foregroundColor(AppColors.textMuted)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
                 .background(
                     Capsule()
                         .fill(AppColors.primary.opacity(0.12))
@@ -386,12 +397,7 @@ struct HomeView: View {
     }
 
     private var snapshotData: SnapshotData? {
-        guard !isCurrentMonth else { return nil }
-        return SnapshotService.shared.fetchSnapshot(
-            year: selectedYear,
-            month: selectedMonthIndex,
-            in: modelContext
-        )
+        snapshotDataCache
     }
 
     private var availableSnapshotKeys: Set<String> {
@@ -450,6 +456,8 @@ struct HomeView: View {
     }
 
     private func preloadNotesForSelectedMonth() {
+        guard AppSessionManager.shared.state == .running,
+              !AppSessionManager.shared.securityLock else { return }
         let year = selectedYear
         let month = selectedMonthIndex
         Task {
@@ -459,6 +467,22 @@ struct HomeView: View {
                 modelContext: modelContext
             )
         }
+    }
+
+    private func refreshSnapshotData() {
+        guard !isCurrentMonth else {
+            snapshotDataCache = nil
+            return
+        }
+
+        guard let snapshot = snapshots.first(where: {
+            $0.year == selectedYear && $0.month == selectedMonthIndex && $0.status == .available
+        }) else {
+            snapshotDataCache = nil
+            return
+        }
+
+        snapshotDataCache = SnapshotService.shared.decodeSnapshot(snapshot)
     }
 
     // MARK: - Bottom Navigation

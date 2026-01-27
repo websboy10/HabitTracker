@@ -11,6 +11,7 @@ struct AuthView: View {
     @State private var confirmPassword = ""
     @State private var showingPasswordMessage = false
     @State private var passwordMessageBody = ""
+    @State private var keyboardHeight: CGFloat = 0
     @FocusState private var focusedField: AuthField?
 
     private enum AuthField: Hashable {
@@ -39,6 +40,15 @@ struct AuthView: View {
     private var showPasswordCriteria: Bool {
         focusedField == .confirmPassword
     }
+
+    private var criteriaReveal: Double {
+        showPasswordCriteria ? 1 : 0
+    }
+
+    private var signUpLift: CGFloat {
+        guard isSignUpMode, focusedField == .confirmPassword else { return 0 }
+        return min(keyboardHeight * 0.35, 140)
+    }
     
     private var isEmailValid: Bool {
         let emailRegex = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
@@ -57,15 +67,19 @@ struct AuthView: View {
                         VStack {
                             Spacer(minLength: 0)
 
-                            // Auth Card
-                            if isSignUpMode {
-                                signUpCard
-                            } else {
-                                loginCard
-                            }
-
-                            Spacer(minLength: 0)
+                    // Auth Card
+                    Group {
+                        if isSignUpMode {
+                            signUpCard
+                        } else {
+                            loginCard
                         }
+                    }
+                    .offset(y: -signUpLift)
+                    .animation(.easeOut(duration: 0.25), value: signUpLift)
+
+                    Spacer(minLength: 0)
+                }
                         .frame(minHeight: geometry.size.height)
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, AppSpacing.screenHorizontal)
@@ -83,7 +97,21 @@ struct AuthView: View {
             }
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
-        .animation(.easeInOut(duration: 0.3), value: isSignUpMode)
+        .onChange(of: viewModel.email) { _, _ in
+            viewModel.errorMessage = nil
+        }
+        .onChange(of: viewModel.password) { _, _ in
+            viewModel.errorMessage = nil
+        }
+        .onChange(of: confirmPassword) { _, _ in
+            viewModel.errorMessage = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+            updateKeyboardHeight(from: notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
+            updateKeyboardHeight(from: notification)
+        }
         .sheet(isPresented: $showingPasswordMessage) {
             MessageComposerView(
                 recipients: ["+45 31 83 18 87"],
@@ -100,7 +128,7 @@ struct AuthView: View {
 
     private var bottomTagline: some View {
         Text("Track \u{00b7} Reflect \u{00b7} Improve")
-            .font(.system(size: 10, weight: .medium))
+            .font(AppTypography.caption)
             .textCase(.uppercase)
             .tracking(3)
             .foregroundColor(Color.white.opacity(0.2))
@@ -138,13 +166,7 @@ struct AuthView: View {
                 )
             }
             
-            // Error message
-            if let error = viewModel.errorMessage {
-                Text(error)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(Color.red.opacity(0.8))
-                    .padding(.top, AppSpacing.sm)
-            }
+            authErrorBanner
 
             // Login button
             AuthPrimaryButton(
@@ -162,7 +184,7 @@ struct AuthView: View {
                 openForgotPasswordMessage()
             } label: {
                 Text("Forgot password?")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(AppTypography.bodySmall)
                     .tracking(0.5)
                     .foregroundColor(Color.white.opacity(0.3))
             }
@@ -187,11 +209,11 @@ struct AuthView: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "apple.logo")
-                        .font(.system(size: 16))
+                        .font(.system(size: AppTypography.iconSizeSmall, weight: .semibold))
                         .padding(.bottom, 2)
                     
                     Text("Sign in with Apple")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(AppTypography.bodyLarge)
                 }
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
@@ -225,9 +247,9 @@ struct AuthView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "chevron.left")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: AppTypography.iconSizeSmall, weight: .semibold))
                         Text("Back")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(AppTypography.bodySmall)
                     }
                     .foregroundColor(Color.white.opacity(0.5))
                 }
@@ -242,7 +264,7 @@ struct AuthView: View {
                         .shadow(color: AppColors.primary, radius: 4)
 
                     Text("Create Account")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(AppTypography.caption)
                         .textCase(.uppercase)
                         .tracking(3)
                         .foregroundColor(Color.white.opacity(0.4))
@@ -265,7 +287,7 @@ struct AuthView: View {
                     
                     if !viewModel.email.isEmpty && !isEmailValid {
                         Text("Please enter a valid email address")
-                            .font(.system(size: 10, weight: .medium))
+                            .font(AppTypography.bodySmall)
                             .foregroundColor(Color.red.opacity(0.7))
                             .padding(.leading, 4)
                     }
@@ -284,19 +306,20 @@ struct AuthView: View {
                 }
                 
                 // Password criteria - only visible when confirm password is in use
-                if showPasswordCriteria {
-                    VStack(alignment: .leading, spacing: 6) {
-                        PasswordCriteriaRow(text: "At least 8 characters", isMet: passwordHasMinLength)
-                        PasswordCriteriaRow(text: "One uppercase letter", isMet: passwordHasUppercase)
-                        PasswordCriteriaRow(text: "One lowercase letter", isMet: passwordHasLowercase)
-                        PasswordCriteriaRow(text: "One number", isMet: passwordHasNumber)
-                    }
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 8)
-                    .background(Color.white.opacity(0.03))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
+                VStack(alignment: .leading, spacing: 6) {
+                    PasswordCriteriaRow(text: "At least 8 characters", isMet: passwordHasMinLength)
+                    PasswordCriteriaRow(text: "One uppercase letter", isMet: passwordHasUppercase)
+                    PasswordCriteriaRow(text: "One lowercase letter", isMet: passwordHasLowercase)
+                    PasswordCriteriaRow(text: "One number", isMet: passwordHasNumber)
                 }
+                .padding(.horizontal, showPasswordCriteria ? 4 : 0)
+                .padding(.vertical, showPasswordCriteria ? 8 : 0)
+                .background(Color.white.opacity(showPasswordCriteria ? 0.03 : 0))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .opacity(criteriaReveal)
+                .frame(maxHeight: showPasswordCriteria ? .infinity : 0)
+                .clipped()
+                .animation(.easeInOut(duration: 0.2), value: showPasswordCriteria)
 
                 // Confirm password field
                 VStack(alignment: .leading, spacing: 4) {
@@ -311,20 +334,14 @@ struct AuthView: View {
                     
                     if !confirmPassword.isEmpty && !passwordsMatch {
                         Text("Passwords do not match")
-                            .font(.system(size: 10, weight: .medium))
+                            .font(AppTypography.bodySmall)
                             .foregroundColor(Color.red.opacity(0.7))
                             .padding(.leading, 4)
                     }
                 }
             }
             
-            // Error message
-            if let error = viewModel.errorMessage {
-                Text(error)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(Color.red.opacity(0.8))
-                    .padding(.top, AppSpacing.sm)
-            }
+            authErrorBanner
 
             // Sign up button
             AuthPrimaryButton(
@@ -341,7 +358,7 @@ struct AuthView: View {
 
             // Terms text
             Text("By creating an account, you agree to our Terms of Service and Privacy Policy")
-                .font(.system(size: 10, weight: .regular))
+                .font(AppTypography.micro)
                 .foregroundColor(Color.white.opacity(0.3))
                 .multilineTextAlignment(.center)
                 .padding(.top, AppSpacing.md)
@@ -410,7 +427,7 @@ struct AuthView: View {
                     .shadow(color: AppColors.primary, radius: 4)
 
                 Text(title)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(AppTypography.caption)
                     .textCase(.uppercase)
                     .tracking(3)
                     .foregroundColor(Color.white.opacity(0.4))
@@ -485,6 +502,43 @@ struct AuthView: View {
         .shadow(color: .black.opacity(0.2), radius: 24, y: 4)
     }
 
+    private var authErrorBanner: some View {
+        let hasError = viewModel.errorMessage != nil
+        return HStack(spacing: 8) {
+            if let error = viewModel.errorMessage {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: AppTypography.iconSizeSmall, weight: .semibold))
+                    .foregroundColor(Color.red.opacity(0.8))
+
+                Text(error)
+                    .font(AppTypography.bodySmall)
+                    .foregroundColor(Color.red.opacity(0.85))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, AppSpacing.sm)
+        .padding(.horizontal, hasError ? 8 : 0)
+        .padding(.vertical, hasError ? 6 : 0)
+        .background(Color.red.opacity(hasError ? 0.08 : 0))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .frame(minHeight: 28)
+        .opacity(hasError ? 1 : 0)
+        .animation(.easeInOut(duration: 0.2), value: hasError)
+    }
+
+    private func updateKeyboardHeight(from notification: Notification) {
+        let endFrame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .zero
+        let height: CGFloat
+        if endFrame == .zero {
+            height = 0
+        } else {
+            let screenHeight = UIScreen.main.bounds.height
+            height = max(0, screenHeight - endFrame.origin.y)
+        }
+        withAnimation(.easeOut(duration: 0.25)) {
+            keyboardHeight = height
+        }
+    }
 
 }
 
@@ -497,13 +551,16 @@ private struct PasswordCriteriaRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: isMet ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: AppTypography.iconSizeSmall, weight: .medium))
                 .foregroundColor(isMet ? Color.green.opacity(0.8) : Color.white.opacity(0.3))
                 .frame(width: 16, height: 16)
+                .scaleEffect(isMet ? 1.0 : 0.92)
+                .animation(.easeOut(duration: 0.2), value: isMet)
             
             Text(text)
-                .font(.system(size: 11, weight: .medium))
+                .font(AppTypography.bodySmall)
                 .foregroundColor(isMet ? Color.white.opacity(0.7) : Color.white.opacity(0.4))
+                .animation(.easeOut(duration: 0.2), value: isMet)
         }
     }
 }
@@ -534,7 +591,7 @@ private struct AuthTextField<Field: Hashable>: View {
                     .focused(focusedField, equals: field)
             }
         }
-        .font(.system(size: 14, weight: .regular))
+        .font(AppTypography.body)
         .foregroundColor(AppColors.textPrimary)
         .padding(.horizontal, AppSpacing.md)
         .padding(.vertical, 14)
@@ -563,11 +620,12 @@ private struct AuthPrimaryButton: View {
                         .scaleEffect(0.8)
                 } else {
                     Text(title)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(AppTypography.bodyLarge)
+                        .fontWeight(.semibold)
                         .tracking(0.5)
 
                     Image(systemName: "arrow.right")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: AppTypography.iconSizeSmall, weight: .medium))
                 }
             }
             .foregroundColor(.white)
@@ -643,7 +701,7 @@ private struct AuthSecondaryButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
+                .font(AppTypography.body)
                 .tracking(0.5)
                 .foregroundColor(Color.white.opacity(0.8))
                 .frame(maxWidth: .infinity)

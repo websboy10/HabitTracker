@@ -47,15 +47,21 @@ final class SnapshotService: ObservableObject {
             guard local.status == .available else { return nil }
 
             let decoder = JSONDecoder()
-            guard let stats = try? decoder.decode(SnapshotStatsData.self, from: local.statsJSON),
-                  let ledger = try? decoder.decode([SnapshotLedgerData].self, from: local.ledgerJSON) else {
-                return nil
-            }
-
-            return SnapshotData(stats: stats, ledger: ledger)
+            return decodeSnapshot(local, using: decoder)
         }
         
         return nil
+    }
+
+    /// Decodes snapshot JSON into usable data. Returns nil if unavailable or corrupted.
+    func decodeSnapshot(_ snapshot: SnapshotModel, using decoder: JSONDecoder = JSONDecoder()) -> SnapshotData? {
+        guard snapshot.status == .available else { return nil }
+        guard let stats = try? decoder.decode(SnapshotStatsData.self, from: snapshot.statsJSON),
+              let ledger = try? decoder.decode([SnapshotLedgerData].self, from: snapshot.ledgerJSON) else {
+            return nil
+        }
+
+        return SnapshotData(stats: stats, ledger: ledger)
     }
 
     /// Returns true if a snapshot exists and is marked available for a given month.

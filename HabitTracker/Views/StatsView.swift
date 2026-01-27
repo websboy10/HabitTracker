@@ -11,6 +11,7 @@ struct StatsView: View {
 
     @State private var statsCalculator: StatsCalculator?
     @State private var selectedMonth: Date = Date()
+    @State private var snapshotDataCache: SnapshotData?
     
     // Calendar service for busy day awareness (disabled - not in project)
     // @StateObject private var calendarService = CalendarService.shared
@@ -65,9 +66,16 @@ struct StatsView: View {
 
             // Initialize stats calculator
             statsCalculator = StatsCalculator(modelContext: modelContext)
+            refreshSnapshotData()
         }
         .onDisappear {
             NavigationLogger.shared.logViewDisappear("StatsView")
+        }
+        .onChange(of: selectedMonth) { _, _ in
+            refreshSnapshotData()
+        }
+        .onChange(of: snapshots) { _, _ in
+            refreshSnapshotData()
         }
     }
 
@@ -243,21 +251,20 @@ struct StatsView: View {
                 }
             } label: {
                 HStack(spacing: 6) {
-                    Text(selectedMonthName.uppercased())
+                    Text("\(selectedMonthName.uppercased()) \(selectedYear)")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(AppColors.primary)
                         .tracking(1)
-                    
-                    Text(String(selectedYear))
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(AppColors.textMuted)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
+                        .layoutPriority(1)
                     
                     Image(systemName: "chevron.down")
                         .font(.system(size: 8, weight: .bold))
                         .foregroundColor(AppColors.textMuted)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
                 .background(
                     Capsule()
                         .fill(AppColors.primary.opacity(0.12))
@@ -516,12 +523,7 @@ struct StatsView: View {
     }
 
     private var snapshotData: SnapshotData? {
-        guard !isCurrentMonth else { return nil }
-        return SnapshotService.shared.fetchSnapshot(
-            year: selectedYear,
-            month: Calendar.current.component(.month, from: selectedMonth),
-            in: modelContext
-        )
+        snapshotDataCache
     }
 
     private var availableSnapshotKeys: Set<String> {
@@ -554,6 +556,23 @@ struct StatsView: View {
         }
 
         return options.sorted { $0.id > $1.id }
+    }
+
+    private func refreshSnapshotData() {
+        guard !isCurrentMonth else {
+            snapshotDataCache = nil
+            return
+        }
+
+        let monthIndex = Calendar.current.component(.month, from: selectedMonth)
+        guard let snapshot = snapshots.first(where: {
+            $0.year == selectedYear && $0.month == monthIndex && $0.status == .available
+        }) else {
+            snapshotDataCache = nil
+            return
+        }
+
+        snapshotDataCache = SnapshotService.shared.decodeSnapshot(snapshot)
     }
 
     private struct MonthOption: Identifiable, Hashable {

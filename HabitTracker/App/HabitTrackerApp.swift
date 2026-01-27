@@ -39,6 +39,9 @@ struct HabitTrackerApp: App {
 
     /// Controls when splash view is removed from hierarchy (happens AFTER main content appears)
     @State private var splashRemoved = false
+    
+    /// Prevents duplicate post-unlock syncs within the same running session
+    @State private var didRunPostUnlockTasks = false
 
     var body: some Scene {
         WindowGroup {
@@ -50,7 +53,7 @@ struct HabitTrackerApp: App {
                 // Renders main content as soon as splash signals finish (while splash is still at opacity 0)
                 // This ensures content is ready BEFORE splash is removed from hierarchy
                 Group {
-                    if splashFinished {
+                    if splashFinished && contentReady {
                         switch session.state {
                         case .unauthenticated:
                             AuthView()
@@ -59,8 +62,6 @@ struct HabitTrackerApp: App {
                         case .running, .synchronizing:
                             ContentView()
                         default:
-                            // startup, authenticating, restoringIdentity, tearingDown
-                            // Kept explicitly black/empty behind splash
                             Color.black.ignoresSafeArea()
                         }
                     } else {
@@ -68,7 +69,7 @@ struct HabitTrackerApp: App {
                         Color.black.ignoresSafeArea()
                     }
                 }
-                .allowsHitTesting(splashFinished && session.state != .tearingDown)
+                .allowsHitTesting(splashFinished && contentReady && session.state != .tearingDown)
                 .zIndex(1)
 
                 // Splash screen (Overlay)
@@ -93,18 +94,14 @@ struct HabitTrackerApp: App {
                 }
             }
             .preferredColorScheme(.dark)
-            // Only animate state changes AFTER splash is fully removed
-            .animation(splashRemoved ? .easeInOut(duration: 0.5) : nil, value: session.state)
             // Two-phase transition: first reveal content, then remove splash
             .onChange(of: splashFinished) { _, finished in
                 if finished {
-                    // Phase 1: Main content is now rendered (splash is at opacity 0, still in hierarchy)
-                    // Wait one frame for main content to fully render, then remove splash
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        // Phase 2: Remove splash from hierarchy (main content is already visible)
-                        splashRemoved = true
-                    }
+                    attemptSplashRemoval()
                 }
+            }
+            .onChange(of: session.state) { _, _ in
+                attemptSplashRemoval()
             }
             .task {
                 // Provide model container to AppDelegate for foreground notification refresh
@@ -113,6 +110,9 @@ struct HabitTrackerApp: App {
                 await session.initialize(modelContext: modelContainer.mainContext)
             }
             .onChange(of: session.state) { _, newState in
+                if newState != .running {
+                    didRunPostUnlockTasks = false
+                }
                 if newState == .synchronizing {
                     // Trigger Data Sync Phase
                     Task {
@@ -137,15 +137,46 @@ struct HabitTrackerApp: App {
                     }
                 }
                 if newState == .running {
-                    Task { @MainActor in
-                        // Ensure snapshots are generated for past months
-                        await SnapshotService.shared.ensureSnapshotsGenerated(in: modelContainer.mainContext)
-                        
-                        await NotificationEngine.shared.syncAllNotifications(modelContext: modelContainer.mainContext)
-                    }
+                    runPostUnlockTasksIfNeeded()
                 }
+            }
+            .onChange(of: session.securityLock) { _, locked in
+                if locked {
+                    return
+                }
+                runPostUnlockTasksIfNeeded()
             }
         }
         .modelContainer(modelContainer)
+    }
+    
+    private var contentReady: Bool {
+        switch session.state {
+        case .unauthenticated, .onboarding, .running, .synchronizing:
+            return true
+        default:
+            return false
+        }
+    }
+    
+    private func attemptSplashRemoval() {
+        guard splashFinished, contentReady, !splashRemoved else { return }
+        DispatchQueue.main.async {
+            splashRemoved = true
+        }
+    }
+    
+    private func runPostUnlockTasksIfNeeded() {
+        guard session.state == .running else { return }
+        guard !session.securityLock else { return }
+        guard !didRunPostUnlockTasks else { return }
+        didRunPostUnlockTasks = true
+        
+        Task { @MainActor in
+            // Ensure snapshots are generated for past months
+            await SnapshotService.shared.ensureSnapshotsGenerated(in: modelContainer.mainContext)
+            
+            await NotificationEngine.shared.syncAllNotifications(modelContext: modelContainer.mainContext)
+        }
     }
 }

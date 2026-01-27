@@ -19,6 +19,10 @@ enum AppTypography {
     /// Standard body text
     /// CSS: text-sm font-medium (14px)
     static let body = Font.system(size: 14, weight: .medium)
+
+    /// Large body text for primary actions
+    /// CSS: text-base font-medium (16px)
+    static let bodyLarge = Font.system(size: 16, weight: .medium)
     
     /// Small body text
     /// CSS: text-xs (12px)
