@@ -320,7 +320,6 @@ struct GoalRow: View {
                 endPoint: .bottomTrailing
             )
         )
-        .background(.ultraThinMaterial.opacity(0.25))
         .clipShape(RoundedRectangle(cornerRadius: AppSpacing.cornerRadiusLarge, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: AppSpacing.cornerRadiusLarge, style: .continuous)
