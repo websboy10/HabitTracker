@@ -990,6 +990,7 @@ final class SupabaseService: ObservableObject {
             path: "profiles",
             method: "GET",
             queryParams: [("id", "eq.\(userId)"), ("select", "*")],
+            requiresRunningState: false,
             allowWhenLocked: true
         )
         
@@ -1006,6 +1007,7 @@ final class SupabaseService: ObservableObject {
             path: "user_settings",
             method: "GET",
             queryParams: [("user_id", "eq.\(userId)"), ("select", "*")],
+            requiresRunningState: false,
             allowWhenLocked: true
         )
         

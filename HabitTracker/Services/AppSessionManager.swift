@@ -15,6 +15,13 @@ enum AppLifecycleState: String, CaseIterable {
     case unauthenticated    // Show AuthView
 }
 
+enum AppEntryState: String, CaseIterable {
+    case loading
+    case unauthenticated
+    case onboarding
+    case ready
+}
+
 /// Operations that must be gated by lifecycle state.
 enum LifecycleCapability: String, CaseIterable {
     case cloudWrite
@@ -31,6 +38,7 @@ final class AppSessionManager: ObservableObject {
     static let shared = AppSessionManager()
     
     @Published var state: AppLifecycleState = .startup
+    @Published private(set) var entryState: AppEntryState = .loading
     @Published private(set) var authState: AuthState = .unauthenticated
     @Published private(set) var securityLock: Bool = false
     @Published private(set) var hasPendingOnboardingCommit: Bool = false
@@ -68,6 +76,11 @@ final class AppSessionManager: ObservableObject {
         hasPendingOnboardingCommit = UserDefaults.standard.bool(forKey: pendingOnboardingCommitKey)
     }
 
+    private func transitionEntryState(to newState: AppEntryState) {
+        guard entryState != newState else { return }
+        entryState = newState
+    }
+
     private func setPendingOnboardingCommit(_ pending: Bool) {
         hasPendingOnboardingCommit = pending
         if pending {
@@ -82,6 +95,7 @@ final class AppSessionManager: ObservableObject {
     func initialize(modelContext: ModelContext) async {
         SyncLogger.logAuth("AppSessionManager initializing")
         state = .startup
+        transitionEntryState(to: .loading)
         securityLock = true
         setSharedModelContext(modelContext)
 
@@ -117,7 +131,8 @@ final class AppSessionManager: ObservableObject {
         
         // 1. Lock operations until lifecycle is fully ready
         lockSecurityOperations(reason: "restore-session")
-        state = .running
+        state = .restoringIdentity
+        transitionEntryState(to: .loading)
         do {
             // Force pull profile & settings (Bypass local)
             if let profile = try await SupabaseService.shared.getProfileForAuth() {
@@ -136,6 +151,9 @@ final class AppSessionManager: ObservableObject {
                         applyRemoteSettings(settings)
                     }
                     
+                    transitionEntryState(to: .ready)
+                    state = .running
+
                     // 2. Content Phase (sync in running state)
                     await performInitialSyncIfNeeded(modelContext: modelContext)
                 } else {
@@ -151,10 +169,12 @@ final class AppSessionManager: ObservableObject {
             print("❌ RESTORE FAILED: \(error)")
             // Fallback
             if UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
+                transitionEntryState(to: .ready)
                 state = .running
                 await performInitialSyncIfNeeded(modelContext: modelContext)
             } else {
                 state = .unauthenticated
+                transitionEntryState(to: .unauthenticated)
             }
         }
         
@@ -178,6 +198,7 @@ final class AppSessionManager: ObservableObject {
         
         unlockSecurityOperations(reason: "start-onboarding")
         state = .onboarding
+        transitionEntryState(to: .onboarding)
         await NotificationEngine.shared.requestAuthorizationAfterSignup()
     }
     
@@ -213,6 +234,7 @@ final class AppSessionManager: ObservableObject {
         if success {
             print("✅ APP READY: Transitioning to .running")
             state = .running
+            transitionEntryState(to: .ready)
         } else {
             SyncLogger.logSync("Initial sync failed - app remains in synchronizing state", level: .error)
             print("⚠️ SYNC FAILED: App staying in .synchronizing state")
@@ -224,6 +246,7 @@ final class AppSessionManager: ObservableObject {
     func completeOnboarding() {
         setPendingOnboardingCommit(true)
         state = .running
+        transitionEntryState(to: .ready)
         SyncService.shared.unfreezeSync(reason: "complete-onboarding")
         unlockSecurityOperations(reason: "complete-onboarding")
         Task { @MainActor in
@@ -319,6 +342,7 @@ final class AppSessionManager: ObservableObject {
         setPendingOnboardingCommit(false)
         unlockSecurityOperations(reason: "logout-complete")
         state = .unauthenticated
+        transitionEntryState(to: .unauthenticated)
     }
     
     /// Wipes all local data including UserDefaults and StorageMode
@@ -375,6 +399,7 @@ final class AppSessionManager: ObservableObject {
         if UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
             print("⚠️ RESTORE: Cloud profile missing/incomplete, but local onboarding complete. Trusting local.")
             state = .running
+            transitionEntryState(to: .ready)
             Task { @MainActor in
                 if let modelContext = AppSessionManager.sharedModelContext {
                     await performInitialSyncIfNeeded(modelContext: modelContext)
@@ -383,6 +408,7 @@ final class AppSessionManager: ObservableObject {
         } else {
             print("ℹ️ New User detected (or local onboarding incomplete). Redirecting to Onboarding.")
             state = .onboarding
+            transitionEntryState(to: .onboarding)
             Task { @MainActor in
                 _ = await NotificationEngine.shared.requestAuthorizationAfterSignup()
             }
@@ -401,6 +427,7 @@ final class AppSessionManager: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "pendingAccountDeletion")
         securityLock = false
         state = .unauthenticated
+        transitionEntryState(to: .unauthenticated)
         return true
     }
 
@@ -467,6 +494,7 @@ final class AppSessionManager: ObservableObject {
         case .authenticated:
             SyncLogger.logAuth("Auth resolved: authenticated")
             lockSecurityOperations(reason: "auth-resolved")
+            transitionEntryState(to: .loading)
             await restoreSession(modelContext: modelContext)
         case .waitingForEmailConfirmation:
             SyncLogger.logAuth("Auth resolved: waiting for email confirmation")
@@ -474,18 +502,21 @@ final class AppSessionManager: ObservableObject {
             SyncService.shared.freezeSync(reason: "auth-email-confirmation")
             unlockSecurityOperations(reason: "email-confirmation")
             state = .unauthenticated
+            transitionEntryState(to: .unauthenticated)
         case .invalid:
             SyncLogger.logAuth("Auth resolved: invalid - requires re-login")
             await NotificationEngine.shared.cancelAllNotifications(reason: "auth-invalid")
             SyncService.shared.freezeSync(reason: "auth-invalid")
             unlockSecurityOperations(reason: "auth-invalid")
             state = .unauthenticated
+            transitionEntryState(to: .unauthenticated)
         case .unauthenticated, .authenticating:
             SyncLogger.logAuth("Auth resolved: unauthenticated")
             await NotificationEngine.shared.cancelAllNotifications(reason: "auth-unauthenticated")
             SyncService.shared.freezeSync(reason: "auth-unauthenticated")
             unlockSecurityOperations(reason: "auth-unauthenticated")
             state = .unauthenticated
+            transitionEntryState(to: .unauthenticated)
         }
     }
 

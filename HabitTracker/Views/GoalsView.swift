@@ -82,16 +82,13 @@ struct GoalsView: View {
     }
     
     // MARK: - Goals List
-    
+
     private var goalsList: some View {
-        List {
-            Section {
+        ScrollView {
+            VStack(spacing: 0) {
                 header
                     .padding(.bottom, AppSpacing.lg)
                     .padding(.horizontal, AppSpacing.screenHorizontal)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
 
                 GoalTabPicker(selection: Binding(
                     get: { GoalFrequency(rawValue: viewModel.selectedTab) ?? .daily },
@@ -99,64 +96,31 @@ struct GoalsView: View {
                 ))
                 .padding(.bottom, AppSpacing.lg)
                 .padding(.horizontal, AppSpacing.screenHorizontal)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
 
                 let goals = allGoals.filter { $0.recurrenceType == viewModel.selectedTab }
                 if goals.isEmpty {
                     emptyState
-                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
                 } else {
-                    ForEach(goals, id: \.id) { goal in
-                        GoalRow(
-                            goal: goal,
-                            onEdit: { viewModel.editGoal(goal) },
-                            onToggleStatus: { viewModel.toggleStatus(goal) }
-                        )
-                        .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 12, trailing: 8))
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(role: .destructive) {
-                                withAnimation {
-                                    viewModel.deleteGoal(goal)
-                                }
-                            } label: {
-                                Label("Delete", systemImage: "trash")
+                    ReorderableGoalsList(
+                        goals: goals,
+                        onEdit: { viewModel.editGoal($0) },
+                        onToggleStatus: { viewModel.toggleStatus($0) },
+                        onReorder: { reorderedGoals in
+                            for (index, goal) in reorderedGoals.enumerated() {
+                                goal.orderIndex = index
                             }
+                            try? modelContext.save()
                         }
-                    }
-                    .onMove { source, destination in
-                        moveGoals(from: source, to: destination, in: goals)
-                    }
+                    )
+                    .padding(.horizontal, 8)
                 }
             }
+            .padding(.top, AppSpacing.xl)
+            .padding(.bottom, 140)
         }
-        .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .padding(.top, AppSpacing.xl)
-        .contentMargins(.bottom, 140, for: .scrollContent)
-        .environment(\.editMode, .constant(.active))
     }
 
-    // MARK: - Reorder Logic
-
-    /// Reorders goals and persists the new order.
-    /// Local-only persistence - no sync, no notifications, no side effects.
-    private func moveGoals(from source: IndexSet, to destination: Int, in goals: [GoalModel]) {
-        var reorderedGoals = goals
-        reorderedGoals.move(fromOffsets: source, toOffset: destination)
-
-        for (index, goal) in reorderedGoals.enumerated() {
-            goal.orderIndex = index
-        }
-
-        try? modelContext.save()
-    }
-    
     private var emptyState: some View {
         VStack(spacing: 16) {
             Image(systemName: "scope")
@@ -198,6 +162,83 @@ struct GoalsView: View {
                 .padding(.bottom, AppSpacing.md)
                 .background(AppColors.backgroundDark)
         }
+    }
+}
+
+// MARK: - Reorderable Goals List
+
+/// A goals list with invisible drag-to-reorder support.
+/// Long-press and drag to reorder. The card itself moves.
+struct ReorderableGoalsList: View {
+    let goals: [GoalModel]
+    let onEdit: (GoalModel) -> Void
+    let onToggleStatus: (GoalModel) -> Void
+    let onReorder: ([GoalModel]) -> Void
+
+    @State private var draggingGoal: GoalModel?
+    @State private var localGoals: [GoalModel] = []
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ForEach(localGoals, id: \.id) { goal in
+                GoalRow(
+                    goal: goal,
+                    onEdit: { onEdit(goal) },
+                    onToggleStatus: { onToggleStatus(goal) }
+                )
+                .opacity(draggingGoal?.id == goal.id ? 0.01 : 1.0)
+                .onDrag {
+                    draggingGoal = goal
+                    return NSItemProvider(object: goal.id.uuidString as NSString)
+                }
+                .onDrop(of: [.text], delegate: GoalDropDelegate(
+                    goal: goal,
+                    goals: $localGoals,
+                    draggingGoal: $draggingGoal,
+                    onReorder: onReorder
+                ))
+            }
+        }
+        .onAppear {
+            localGoals = goals
+        }
+        .onChange(of: goals) { _, newGoals in
+            if draggingGoal == nil {
+                localGoals = newGoals
+            }
+        }
+    }
+}
+
+// MARK: - Goal Drop Delegate
+
+struct GoalDropDelegate: DropDelegate {
+    let goal: GoalModel
+    @Binding var goals: [GoalModel]
+    @Binding var draggingGoal: GoalModel?
+    let onReorder: ([GoalModel]) -> Void
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggingGoal = nil
+        onReorder(goals)
+        return true
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard let dragging = draggingGoal,
+              dragging.id != goal.id,
+              let fromIndex = goals.firstIndex(where: { $0.id == dragging.id }),
+              let toIndex = goals.firstIndex(where: { $0.id == goal.id }) else {
+            return
+        }
+
+        withAnimation(.easeInOut(duration: 0.2)) {
+            goals.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
     }
 }
 

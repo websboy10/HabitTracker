@@ -54,16 +54,19 @@ struct HabitTrackerApp: App {
                 // Renders main content as soon as splash signals finish (while splash is still at opacity 0)
                 // This ensures content is ready BEFORE splash is removed from hierarchy
                 Group {
-                    if splashFinished && contentReady {
-                        switch session.state {
+                    if splashFinished {
+                        switch session.entryState {
+                        case .loading:
+                            ProgressView()
+                                .tint(AppColors.primary)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .background(Color.black.ignoresSafeArea())
                         case .unauthenticated:
                             AuthView()
                         case .onboarding:
                             OnboardingContainerView()
-                        case .running, .synchronizing:
+                        case .ready:
                             ContentView()
-                        default:
-                            Color.black.ignoresSafeArea()
                         }
                     } else {
                         // Placeholder during splash - pure black, no content
@@ -102,6 +105,9 @@ struct HabitTrackerApp: App {
                 }
             }
             .onChange(of: session.state) { _, _ in
+                attemptSplashRemoval()
+            }
+            .onChange(of: session.entryState) { _, _ in
                 attemptSplashRemoval()
             }
             .task {
@@ -152,12 +158,7 @@ struct HabitTrackerApp: App {
     }
     
     private var contentReady: Bool {
-        switch session.state {
-        case .unauthenticated, .onboarding, .running, .synchronizing:
-            return true
-        default:
-            return false
-        }
+        session.entryState != .loading
     }
     
     private func attemptSplashRemoval() {

@@ -306,20 +306,18 @@ struct AuthView: View {
                 }
                 
                 // Password criteria - only visible when confirm password is in use
-                VStack(alignment: .leading, spacing: 6) {
-                    PasswordCriteriaRow(text: "At least 8 characters", isMet: passwordHasMinLength)
-                    PasswordCriteriaRow(text: "One uppercase letter", isMet: passwordHasUppercase)
-                    PasswordCriteriaRow(text: "One lowercase letter", isMet: passwordHasLowercase)
-                    PasswordCriteriaRow(text: "One number", isMet: passwordHasNumber)
+                if showPasswordCriteria {
+                    VStack(alignment: .leading, spacing: 6) {
+                        PasswordCriteriaRow(text: "At least 8 characters", isMet: passwordHasMinLength)
+                        PasswordCriteriaRow(text: "One uppercase letter", isMet: passwordHasUppercase)
+                        PasswordCriteriaRow(text: "One lowercase letter", isMet: passwordHasLowercase)
+                        PasswordCriteriaRow(text: "One number", isMet: passwordHasNumber)
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 6)
+                    .background(Color.white.opacity(0.03))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
-                .padding(.horizontal, showPasswordCriteria ? 4 : 0)
-                .padding(.vertical, showPasswordCriteria ? 8 : 0)
-                .background(Color.white.opacity(showPasswordCriteria ? 0.03 : 0))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .opacity(criteriaReveal)
-                .frame(maxHeight: showPasswordCriteria ? .infinity : 0)
-                .clipped()
-                .animation(.easeInOut(duration: 0.2), value: showPasswordCriteria)
 
                 // Confirm password field
                 VStack(alignment: .leading, spacing: 4) {
