@@ -34,14 +34,14 @@ final class GoalsViewModel {
 
     // MARK: - Queries
 
-    /// Fetches goals filtered by the selected recurrence type
+    /// Fetches goals filtered by the selected recurrence type, sorted by orderIndex
     func fetchGoals() -> [GoalModel] {
         guard let modelContext else { return [] }
 
         let recurrence = selectedTab
         let descriptor = FetchDescriptor<GoalModel>(
             predicate: #Predicate { $0.recurrenceType == recurrence },
-            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+            sortBy: [SortDescriptor(\.orderIndex, order: .forward)]
         )
 
         return (try? modelContext.fetch(descriptor)) ?? []
@@ -89,6 +89,21 @@ final class GoalsViewModel {
         Task {
             await SyncService.shared.syncGoalDeletion(goalId)
         }
+    }
+
+    /// Returns the next available orderIndex for a new goal
+    func nextOrderIndex() -> Int {
+        guard let modelContext else { return 0 }
+
+        let descriptor = FetchDescriptor<GoalModel>(
+            sortBy: [SortDescriptor(\.orderIndex, order: .reverse)]
+        )
+
+        if let goals = try? modelContext.fetch(descriptor),
+           let maxIndex = goals.first?.orderIndex {
+            return maxIndex + 1
+        }
+        return 0
     }
 
     /// Toggles goal status between active and paused

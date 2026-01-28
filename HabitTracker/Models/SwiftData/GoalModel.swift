@@ -50,6 +50,9 @@ final class GoalModel {
     /// Status: "active" or "paused"
     var status: String = "active"
 
+    /// Display order index for user-defined sorting
+    var orderIndex: Int = 0
+
     /// When the goal was created
     var createdAt: Date
 
@@ -71,6 +74,7 @@ final class GoalModel {
         monthlyDayOfMonth: Int? = nil,
         requiredCount: Int = 1,
         status: String = "active",
+        orderIndex: Int = 0,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -87,6 +91,7 @@ final class GoalModel {
         self.monthlyDayOfMonth = monthlyDayOfMonth
         self.requiredCount = max(1, requiredCount)  // Ensure minimum of 1
         self.status = status
+        self.orderIndex = orderIndex
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

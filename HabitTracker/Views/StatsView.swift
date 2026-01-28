@@ -60,6 +60,9 @@ struct StatsView: View {
             }
         }
         .onAppear {
+            if ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
+                return
+            }
             NavigationLogger.shared.logViewAppear("StatsView")
             // Processing pending obligations to ensure stats are accurate
             DeadlineProcessor.shared.processPendingObligations(modelContext: modelContext)
@@ -621,4 +624,5 @@ struct StatsView: View {
 
 #Preview {
     StatsView(selectedTab: .constant(.stats))
+        .modelContainer(PreviewModelContainer.container)
 }

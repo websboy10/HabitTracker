@@ -15,6 +15,14 @@ enum AppLifecycleState: String, CaseIterable {
     case unauthenticated    // Show AuthView
 }
 
+/// Operations that must be gated by lifecycle state.
+enum LifecycleCapability: String, CaseIterable {
+    case cloudWrite
+    case sync
+    case notificationSchedule
+    case storageTransition
+}
+
 /// The Single Source of Truth for the app's overall state.
 /// This manager coordinates Auth, Data, and UI transitions to prevent race conditions.
 @MainActor
@@ -25,12 +33,49 @@ final class AppSessionManager: ObservableObject {
     @Published var state: AppLifecycleState = .startup
     @Published private(set) var authState: AuthState = .unauthenticated
     @Published private(set) var securityLock: Bool = false
+    @Published private(set) var hasPendingOnboardingCommit: Bool = false
     
     // Publish changes for UI routing
     var isReady: Bool { state == .running }
     var isInteracting: Bool { state == .running || state == .synchronizing }
+    var isUserInteractive: Bool {
+        switch state {
+        case .unauthenticated, .onboarding:
+            return true
+        case .running:
+            return !securityLock
+        case .synchronizing:
+            return false
+        case .startup, .authenticating, .restoringIdentity, .tearingDown, .unauthenticated:
+            return false
+        }
+    }
+
+    /// Centralized lifecycle contract for operations that require "running + unlocked".
+    func allows(_ capability: LifecycleCapability) -> Bool {
+        switch state {
+        case .running:
+            return !securityLock
+        case .startup, .authenticating, .onboarding, .restoringIdentity, .synchronizing, .tearingDown, .unauthenticated:
+            return false
+        }
+    }
     
-    private init() {}
+    private let pendingOnboardingCommitKey = "pendingOnboardingCommit"
+    private var isPostOnboardingCommitRunning = false
+
+    private init() {
+        hasPendingOnboardingCommit = UserDefaults.standard.bool(forKey: pendingOnboardingCommitKey)
+    }
+
+    private func setPendingOnboardingCommit(_ pending: Bool) {
+        hasPendingOnboardingCommit = pending
+        if pending {
+            UserDefaults.standard.set(true, forKey: pendingOnboardingCommitKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: pendingOnboardingCommitKey)
+        }
+    }
     
     /// Called on App Launch
     /// Auth state is resolved BEFORE any data or notification operations.
@@ -177,9 +222,13 @@ final class AppSessionManager: ObservableObject {
     
     /// Called when onboarding completes
     func completeOnboarding() {
+        setPendingOnboardingCommit(true)
         state = .running
         SyncService.shared.unfreezeSync(reason: "complete-onboarding")
         unlockSecurityOperations(reason: "complete-onboarding")
+        Task { @MainActor in
+            await performPostOnboardingCommitIfNeeded()
+        }
     }
     
     /// Start logout process - Freezes Sync
@@ -221,6 +270,7 @@ final class AppSessionManager: ObservableObject {
             
             // 4. Clear mutation queue
             MutationQueue.shared.clear()
+            setPendingOnboardingCommit(false)
             
             // 5. Finalize lifecycle
             NotificationEngine.shared.clearNotificationSettingsOnLogout()
@@ -266,6 +316,7 @@ final class AppSessionManager: ObservableObject {
         }
 
         MutationQueue.shared.clear()
+        setPendingOnboardingCommit(false)
         unlockSecurityOperations(reason: "logout-complete")
         state = .unauthenticated
     }
@@ -287,6 +338,7 @@ final class AppSessionManager: ObservableObject {
         let keys = [
             "supabase_session", "supabase_access_token", "isAuthenticated", 
             "hasCompletedOnboarding",
+            "pendingOnboardingCommit",
             "userName", "userTitle", "userAge", "userGoals",
             "theme", "onboardingTheme",
             "hapticFeedback", "compactLayout", "reduceMotion",
@@ -345,6 +397,7 @@ final class AppSessionManager: ObservableObject {
         AuthEngine.shared.purgeLocalStateAfterDeletion()
         MutationQueue.shared.clear()
         NotificationEngine.shared.clearNotificationSettingsOnLogout()
+        setPendingOnboardingCommit(false)
         UserDefaults.standard.removeObject(forKey: "pendingAccountDeletion")
         securityLock = false
         state = .unauthenticated
@@ -362,6 +415,47 @@ final class AppSessionManager: ObservableObject {
     private func performInitialSyncIfNeeded(modelContext: ModelContext) async {
         guard StorageMode.isCloud else { return }
         await SyncService.shared.performFullSync(modelContext: modelContext, allowWhenLocked: true)
+    }
+
+    // MARK: - Post-Onboarding Commit
+
+    private func performPostOnboardingCommitIfNeeded() async {
+        guard !isPostOnboardingCommitRunning else { return }
+        guard state == .running, !securityLock else { return }
+        guard hasPendingOnboardingCommit else { return }
+
+        isPostOnboardingCommitRunning = true
+        defer { isPostOnboardingCommitRunning = false }
+
+        await SupabaseService.shared.awaitSessionInitialization()
+        guard SupabaseService.shared.isAuthenticated,
+              SupabaseService.shared.currentUserId != nil else {
+            SyncLogger.logAuth("Post-onboarding commit deferred: auth/session not ready", level: .warning)
+            return
+        }
+
+        // Settings are synced for all modes (one-time bootstrap).
+        await SyncService.shared.syncSettingsToCloud(settings: SettingsStore.shared)
+
+        // Profile sync is only for cloud mode (matches existing behavior).
+        if StorageMode.isCloud {
+            let age = UserDefaults.standard.object(forKey: "userAge") as? Int
+            let goals = UserDefaults.standard.stringArray(forKey: "userGoals")
+            let userGoal = (goals?.isEmpty == false) ? goals?.joined(separator: ", ") : nil
+            do {
+                try await SyncService.shared.syncProfileToCloud(
+                    name: SettingsStore.shared.userName,
+                    title: SettingsStore.shared.userTitle,
+                    age: age,
+                    userGoal: userGoal
+                )
+            } catch {
+                SyncLogger.logAuth("Post-onboarding profile sync failed: \(error.localizedDescription)", level: .error)
+            }
+        }
+
+        SettingsStore.shared.clearPendingCloudSync()
+        setPendingOnboardingCommit(false)
     }
 
     // MARK: - Auth State Mapping
@@ -405,5 +499,9 @@ final class AppSessionManager: ObservableObject {
     private func unlockSecurityOperations(reason: String) {
         securityLock = false
         SyncLogger.logAuth("Security lock disabled: \(reason)")
+        Task { @MainActor in
+            await performPostOnboardingCommitIfNeeded()
+            SettingsStore.shared.flushPendingCloudSyncIfNeeded()
+        }
     }
 }

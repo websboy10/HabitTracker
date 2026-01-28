@@ -350,10 +350,17 @@ final class SettingsStore {
     }
     
     private var syncWorkItem: DispatchWorkItem?
+    private var hasPendingCloudSync: Bool = false
     
     private func syncToCloudDebounced() {
         // Only sync if cloud mode
         guard StorageMode.isCloud else { return }
+        
+        // Defer until lifecycle is fully running + unlocked
+        guard AppSessionManager.shared.allows(.cloudWrite) else {
+            hasPendingCloudSync = true
+            return
+        }
         
         // Cancel any pending sync
         syncWorkItem?.cancel()
@@ -361,16 +368,7 @@ final class SettingsStore {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             Task { @MainActor in
-                await SyncService.shared.syncSettingsToCloud(settings: self)
-                await SyncService.shared.syncSettingsToCloud(settings: self)
-                do {
-                    try await SyncService.shared.syncProfileToCloud(
-                        name: self.userName,
-                        title: self.userTitle
-                    )
-                } catch {
-                    print("Available to sync profile from settings: \(error)")
-                }
+                await self.performCloudSyncIfAllowed()
             }
         }
         
@@ -378,6 +376,36 @@ final class SettingsStore {
         
         // Debounce sync by 2 seconds
         DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: workItem)
+    }
+
+    private func performCloudSyncIfAllowed() async {
+        guard StorageMode.isCloud else { return }
+        guard AppSessionManager.shared.allows(.cloudWrite) else {
+            hasPendingCloudSync = true
+            return
+        }
+        
+        hasPendingCloudSync = false
+        await SyncService.shared.syncSettingsToCloud(settings: self)
+        do {
+            try await SyncService.shared.syncProfileToCloud(
+                name: self.userName,
+                title: self.userTitle
+            )
+        } catch {
+            print("Available to sync profile from settings: \(error)")
+        }
+    }
+
+    func flushPendingCloudSyncIfNeeded() {
+        guard hasPendingCloudSync else { return }
+        Task { @MainActor in
+            await performCloudSyncIfAllowed()
+        }
+    }
+
+    func clearPendingCloudSync() {
+        hasPendingCloudSync = false
     }
     
     // MARK: - Data Management

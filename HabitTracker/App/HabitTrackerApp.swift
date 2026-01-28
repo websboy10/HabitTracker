@@ -19,7 +19,8 @@ struct HabitTrackerApp: App {
             let schema = Schema([
                 GoalModel.self,
                 ObligationModel.self,
-                WeeklyNoteModel.self
+                WeeklyNoteModel.self,
+                SnapshotModel.self
             ])
             let modelConfiguration = ModelConfiguration(
                 schema: schema,
@@ -69,7 +70,7 @@ struct HabitTrackerApp: App {
                         Color.black.ignoresSafeArea()
                     }
                 }
-                .allowsHitTesting(splashFinished && contentReady && session.state != .tearingDown)
+                .allowsHitTesting(splashFinished && contentReady && session.isUserInteractive)
                 .zIndex(1)
 
                 // Splash screen (Overlay)

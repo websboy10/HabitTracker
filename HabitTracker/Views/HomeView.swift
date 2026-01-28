@@ -18,7 +18,7 @@ struct HomeView: View {
 
     // Observe model changes to trigger re-renders when data is deleted/added
     @Query private var obligations: [ObligationModel]
-    @Query private var goals: [GoalModel]
+    @Query(sort: \GoalModel.orderIndex, order: .forward) private var goals: [GoalModel]
     @Query private var weeklyNotes: [WeeklyNoteModel]
     @Query private var snapshots: [SnapshotModel]
     
@@ -66,6 +66,9 @@ struct HomeView: View {
             }
         }
         .onAppear {
+            if ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
+                return
+            }
             NavigationLogger.shared.logViewAppear("HomeView")
             viewModel.configure(with: modelContext)
             preloadNotesForSelectedMonth()
@@ -222,26 +225,37 @@ struct HomeView: View {
                 emptyObligationsState
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
             } else {
-                VStack(spacing: AppSpacing.md) {
-                    ForEach(Array(obligations.enumerated()), id: \.element.obligation.id) { index, item in
-                        ObligationCard(
-                            obligation: item.obligation,
-                            goal: item.goal,
-                            canToggle: isCurrentMonth && viewModel.canToggleObligation(item.obligation)
-                        ) {
-                            withAnimation(AppAnimation.standard) {
-                                viewModel.completeObligation(item.obligation)
-                            }
+                ObligationsListView(
+                    obligations: obligations,
+                    isCurrentMonth: isCurrentMonth,
+                    canToggle: viewModel.canToggleObligation,
+                    onComplete: { obligation in
+                        withAnimation(AppAnimation.standard) {
+                            viewModel.completeObligation(obligation)
                         }
-                        .transition(.asymmetric(
-                            insertion: .opacity.combined(with: .move(edge: .trailing)),
-                            removal: .opacity.combined(with: .scale(scale: 0.8))
-                        ))
+                    },
+                    onMove: { source, destination in
+                        moveObligations(from: source, to: destination, in: obligations)
                     }
-                }
-                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: obligations.map { $0.obligation.id })
+                )
             }
         }
+    }
+
+    // MARK: - Reorder Logic
+
+    /// Reorders goals based on obligation positions.
+    /// When user reorders obligations, we update the underlying goal orderIndex values.
+    private func moveObligations(from source: IndexSet, to destination: Int, in obligations: [(obligation: ObligationModel, goal: GoalModel)]) {
+        var reorderedObligations = obligations
+        reorderedObligations.move(fromOffsets: source, toOffset: destination)
+
+        // Update goal orderIndex based on new obligation positions
+        for (index, item) in reorderedObligations.enumerated() {
+            item.goal.orderIndex = index
+        }
+
+        try? modelContext.save()
     }
 
     private var emptyObligationsState: some View {
@@ -501,6 +515,40 @@ struct HomeView: View {
                 .padding(.bottom, AppSpacing.md)
                 .background(AppColors.backgroundDark)
         }
+    }
+}
+
+// MARK: - Obligations List View (Reorderable)
+
+/// A List-based view for displaying obligations with native drag-to-reorder support.
+struct ObligationsListView: View {
+    let obligations: [(obligation: ObligationModel, goal: GoalModel)]
+    let isCurrentMonth: Bool
+    let canToggle: (ObligationModel) -> Bool
+    let onComplete: (ObligationModel) -> Void
+    let onMove: (IndexSet, Int) -> Void
+
+    var body: some View {
+        List {
+            ForEach(obligations, id: \.obligation.id) { item in
+                ObligationCard(
+                    obligation: item.obligation,
+                    goal: item.goal,
+                    canToggle: isCurrentMonth && canToggle(item.obligation)
+                ) {
+                    onComplete(item.obligation)
+                }
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: AppSpacing.md, trailing: 0))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            }
+            .onMove(perform: onMove)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .scrollDisabled(true)
+        .frame(minHeight: CGFloat(obligations.count * 100))
+        .environment(\.editMode, .constant(.active))
     }
 }
 
@@ -767,4 +815,5 @@ private struct ObligationButtonStyle: ButtonStyle {
 
 #Preview {
     HomeView(selectedTab: .constant(.home))
+        .modelContainer(PreviewModelContainer.container)
 }

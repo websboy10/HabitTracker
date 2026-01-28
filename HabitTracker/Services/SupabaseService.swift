@@ -885,11 +885,6 @@ final class SupabaseService: ObservableObject {
                     
                     // Force set storage mode to cloud since we found a cloud profile
                     StorageMode.persist(.cloud)
-                    
-                    // Trigger a settings fetch to ensure local settings sync
-                    Task {
-                        try? await self.getSettings()
-                    }
                 }
             } else {
                 print("[SupabaseService] ℹ️ No complete profile found. User must complete onboarding.")

@@ -721,4 +721,5 @@ private struct AuthSecondaryButton: View {
 
 #Preview {
     AuthView()
+        .modelContainer(PreviewModelContainer.container)
 }

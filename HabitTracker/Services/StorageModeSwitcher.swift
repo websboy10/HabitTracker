@@ -44,6 +44,9 @@ final class StorageModeSwitcher: ObservableObject {
             throw StorageModeError.transitionFailed("Already in cloud mode")
         }
         
+        guard AppSessionManager.shared.allows(.storageTransition) else {
+            throw StorageModeError.transitionFailed("Lifecycle not ready for storage transition")
+        }
         guard RuntimeGuard.requireAuthenticatedRunning() else {
             throw StorageModeError.transitionFailed("Lifecycle/auth invalid")
         }
@@ -93,6 +96,7 @@ final class StorageModeSwitcher: ObservableObject {
     /// Switches from CLOUD to LOCAL mode.
     /// Stops all cloud writes immediately.
     func switchToLocal() async {
+        guard AppSessionManager.shared.allows(.storageTransition) else { return }
         guard RuntimeGuard.requireAuthenticatedRunning() else { return }
         guard StorageMode.current == .cloud else { return }
         

@@ -168,6 +168,9 @@ struct SettingsView: View {
             .animation(.easeInOut(duration: 0.2), value: deleteAccountStep)
         }
         .task {
+            if ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
+                return
+            }
             await refreshNotificationStatus()
         }
     }
@@ -556,6 +559,9 @@ struct SettingsView: View {
                 }
                 .toolbarBackground(.hidden, for: .navigationBar)
                 .task {
+                    if ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
+                        return
+                    }
                     notificationsEnabled = NotificationEngine.shared.globallyEnabled
                     defaultNotificationTime = NotificationEngine.shared.defaultNotificationTime
                     // Load report toggle states
@@ -1717,6 +1723,9 @@ private struct ExportSheetView: View {
             }
             .toolbarBackground(.hidden, for: .navigationBar)
             .task {
+                if ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
+                    return
+                }
                 await onPrepare()
             }
             .sheet(isPresented: $showingShareSheet) {
@@ -2364,4 +2373,5 @@ struct RTSDeleteAccountFlow: View {
 
 #Preview {
     SettingsView(selectedTab: .constant(.settings))
+        .modelContainer(PreviewModelContainer.container)
 }

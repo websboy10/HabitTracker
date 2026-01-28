@@ -77,6 +77,7 @@ final class ObligationScheduler {
 
     /// Fetch today's obligations with their associated goals.
     /// Category info is available directly on GoalModel via categoryName and categoryColorHex.
+    /// Sorted by goal orderIndex first, then by scheduledAt for stable user-defined ordering.
     func fetchTodaysObligations() -> [(obligation: ObligationModel, goal: GoalModel)] {
         let today = calendar.startOfDay(for: Date())
         guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) else { return [] }
@@ -92,7 +93,7 @@ final class ObligationScheduler {
             obligation.scheduledAt >= today && obligation.scheduledAt < tomorrow
         }
 
-        return todaysObligations.compactMap { obligation in
+        let results = todaysObligations.compactMap { obligation -> (obligation: ObligationModel, goal: GoalModel)? in
             let goalId = obligation.goalId
             let goalDescriptor = FetchDescriptor<GoalModel>(
                 predicate: #Predicate { $0.id == goalId }
@@ -100,6 +101,14 @@ final class ObligationScheduler {
             guard let goal = try? modelContext.fetch(goalDescriptor).first else { return nil }
 
             return (obligation: obligation, goal: goal)
+        }
+
+        // Sort by goal orderIndex first, then by scheduledAt for stable ordering
+        return results.sorted { lhs, rhs in
+            if lhs.goal.orderIndex != rhs.goal.orderIndex {
+                return lhs.goal.orderIndex < rhs.goal.orderIndex
+            }
+            return lhs.obligation.scheduledAt < rhs.obligation.scheduledAt
         }
     }
 

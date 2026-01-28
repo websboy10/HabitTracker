@@ -3,15 +3,15 @@ import SwiftData
 
 /// Goals management view with tabbed layout and SwiftData persistence.
 struct GoalsView: View {
-    
+
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = GoalsViewModel()
     @Binding var selectedTab: Tab
     var showsCustomTabBar: Bool = true
-    
-    // Observe goals to trigger re-renders on changes
-    @Query private var allGoals: [GoalModel]
-    
+
+    // Observe goals to trigger re-renders on changes, sorted by orderIndex
+    @Query(sort: \GoalModel.orderIndex, order: .forward) private var allGoals: [GoalModel]
+
     var body: some View {
         // Force observation of goals to trigger re-renders on changes
         let _ = allGoals.count
@@ -129,6 +129,9 @@ struct GoalsView: View {
                             }
                         }
                     }
+                    .onMove { source, destination in
+                        moveGoals(from: source, to: destination, in: goals)
+                    }
                 }
             }
         }
@@ -136,6 +139,22 @@ struct GoalsView: View {
         .scrollContentBackground(.hidden)
         .padding(.top, AppSpacing.xl)
         .contentMargins(.bottom, 140, for: .scrollContent)
+        .environment(\.editMode, .constant(.active))
+    }
+
+    // MARK: - Reorder Logic
+
+    /// Reorders goals and persists the new order.
+    /// Local-only persistence - no sync, no notifications, no side effects.
+    private func moveGoals(from source: IndexSet, to destination: Int, in goals: [GoalModel]) {
+        var reorderedGoals = goals
+        reorderedGoals.move(fromOffsets: source, toOffset: destination)
+
+        for (index, goal) in reorderedGoals.enumerated() {
+            goal.orderIndex = index
+        }
+
+        try? modelContext.save()
     }
     
     private var emptyState: some View {
@@ -315,4 +334,5 @@ struct GoalRow: View {
 
 #Preview {
     GoalsView(selectedTab: .constant(.goals))
+        .modelContainer(PreviewModelContainer.container)
 }

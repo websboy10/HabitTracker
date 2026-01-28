@@ -100,4 +100,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
+        .modelContainer(PreviewModelContainer.container)
 }

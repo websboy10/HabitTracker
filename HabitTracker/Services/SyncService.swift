@@ -454,7 +454,6 @@ final class SyncService: ObservableObject {
     func syncProfileToCloud(name: String, title: String, age: Int? = nil, userGoal: String? = nil) async throws {
         guard !isFrozen else { return }
         guard RuntimeGuard.requireAuthenticatedRunning() else { return }
-        guard AppSessionManager.shared.state == .running else { return }
         guard isCloudSyncEnabled else { return }
         guard let userId = supabase.currentUserId else { return }
         

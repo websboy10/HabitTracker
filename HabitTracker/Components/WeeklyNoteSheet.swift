@@ -376,4 +376,5 @@ struct WeeklyNoteSheet: View {
                 )
             }
     }
+    .modelContainer(PreviewModelContainer.container)
 }

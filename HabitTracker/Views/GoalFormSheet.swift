@@ -712,7 +712,8 @@ struct GoalFormSheet: View {
                 await SyncService.shared.syncGoalUpdate(goal)
             }
         } else {
-            // Create new goal
+            // Create new goal with next available orderIndex
+            let nextOrderIndex = computeNextOrderIndex()
             let goal = GoalModel(
                 title: title,
                 categoryName: selectedCategoryName,
@@ -724,7 +725,8 @@ struct GoalFormSheet: View {
                 notificationTime: notificationsEnabled ? notificationTime : nil,
                 customIntervalDays: nil,
                 monthlyDayOfMonth: recurrenceType == "monthly" ? monthlyDayOfMonth : nil,
-                requiredCount: max(1, requiredCount)
+                requiredCount: max(1, requiredCount),
+                orderIndex: nextOrderIndex
             )
             modelContext.insert(goal)
             try? modelContext.save()
@@ -759,6 +761,18 @@ struct GoalFormSheet: View {
         return calendar.date(byAdding: .day, value: daysInMonth - 1, to: startOfMonth) ?? now
     }
 
+    /// Computes the next available orderIndex for a new goal
+    private func computeNextOrderIndex() -> Int {
+        let descriptor = FetchDescriptor<GoalModel>(
+            sortBy: [SortDescriptor(\.orderIndex, order: .reverse)]
+        )
+        if let goals = try? modelContext.fetch(descriptor),
+           let maxIndex = goals.first?.orderIndex {
+            return maxIndex + 1
+        }
+        return 0
+    }
+
 }
 
 // MARK: - Glass Text Field Style
@@ -782,4 +796,5 @@ struct GlassTextFieldStyle: TextFieldStyle {
 
 #Preview {
     GoalFormSheet(editingGoal: nil)
+        .modelContainer(PreviewModelContainer.container)
 }

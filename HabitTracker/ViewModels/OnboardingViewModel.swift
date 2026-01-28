@@ -116,7 +116,7 @@ final class OnboardingViewModel {
             isCompletingOnboarding = true
             onboardingError = nil
             Task {
-                let success = await syncToCloud()
+                let success = await validateCloudSession()
                 await MainActor.run {
                     isCompletingOnboarding = false
                     if success {
@@ -125,58 +125,14 @@ final class OnboardingViewModel {
                             AppSessionManager.shared.completeOnboarding()
                         }
                     } else {
-                        onboardingError = "Failed to sync. Please try again."
+                        onboardingError = "Authentication session validation failed. Please try again."
                         // Revert storage mode on failure
                         StorageMode.clear()
                     }
                 }
             }
         } else {
-            // Local mode: sync settings only (fire and forget), then complete
-            Task {
-                // Ensure we wait for any pending session refreshes
-                await SupabaseService.shared.awaitSessionInitialization()
-                
-                print("[OnboardingViewModel] ⚙️ Syncing settings (Local Mode)...")
-                let calendar = Calendar.current
-                let components = calendar.dateComponents([.hour, .minute], from: dayResetTime)
-                let minutes = (components.hour ?? 0) * 60 + (components.minute ?? 0)
-                
-                guard let userId = await SupabaseService.shared.currentUserId else { return }
-                
-                let themeString: String
-                switch themeVariant {
-                case .crimson: themeString = "red"
-                case .onyx: themeString = "blue"
-                case .grove: themeString = "forest"
-                case .blossom: themeString = "pink"
-                case .gold: themeString = "amber"
-                case .aubergine: themeString = "purple"
-                case .gunmetal: themeString = "graphite"
-                case .steel: themeString = "teal"
-                }
-
-                let settingsDTO = UserSettingsDTO(
-                    userId: userId,
-                    theme: themeString,
-                    hapticFeedback: hapticsEnabled,
-                    compactLayout: false,
-                    reduceMotion: false,
-                    weekStart: weekStart.rawValue,
-                    monthCalculation: monthCalculation.rawValue,
-                    dayResetMinutes: minutes,
-                    storageMode: "local"
-                )
-                
-                do {
-                    _ = try await SupabaseService.shared.upsertSettings(settingsDTO)
-                    print("[OnboardingViewModel] ✅ Settings synced (Local Mode).")
-                } catch {
-                    print("[OnboardingViewModel] ⚠️ Failed to sync settings in local mode: \(error)")
-                }
-            }
-            
-            // Immediate completion
+            // Local mode: complete immediately (cloud bootstrap happens post-onboarding)
             Task { @MainActor in
                 withAnimation(.easeInOut(duration: 0.2)) {
                     UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
@@ -223,10 +179,8 @@ final class OnboardingViewModel {
     // MARK: - Cloud Sync
     
     @MainActor
-    private func syncToCloud() async -> Bool {
+    private func validateCloudSession() async -> Bool {
         let supabase = SupabaseService.shared
-        
-        print("[OnboardingViewModel] ☁️ Starting cloud sync...")
         
         // Ensure we wait for any pending session refreshes
         await supabase.awaitSessionInitialization()
@@ -244,60 +198,6 @@ final class OnboardingViewModel {
             return false 
         }
         
-        do {
-            // Sync profile data
-            print("[OnboardingViewModel] 👤 Syncing profile...")
-            let ageInt = Int(age)
-            try await SyncService.shared.syncProfileToCloud(
-                name: UserDefaults.standard.string(forKey: "userName") ?? "User",
-                title: UserDefaults.standard.string(forKey: "userTitle") ?? "Habit Enthusiast",
-                age: ageInt,
-                userGoal: userGoals.isEmpty ? nil : userGoals.joined(separator: ", ")
-            )
-            
-            // Sync settings
-            print("[OnboardingViewModel] ⚙️ Syncing settings...")
-            let calendar = Calendar.current
-            let components = calendar.dateComponents([.hour, .minute], from: dayResetTime)
-            let minutes = (components.hour ?? 0) * 60 + (components.minute ?? 0)
-
-            let cloudThemeString: String
-            switch themeVariant {
-            case .crimson: cloudThemeString = "red"
-            case .onyx: cloudThemeString = "blue"
-            case .grove: cloudThemeString = "forest"
-            case .blossom: cloudThemeString = "pink"
-            case .gold: cloudThemeString = "amber"
-            case .aubergine: cloudThemeString = "purple"
-            case .gunmetal: cloudThemeString = "graphite"
-            case .steel: cloudThemeString = "teal"
-            }
-
-            let settingsDTO = UserSettingsDTO(
-                userId: userId,
-                theme: cloudThemeString,
-                hapticFeedback: hapticsEnabled,
-                compactLayout: false,
-                reduceMotion: false,
-                weekStart: weekStart.rawValue,
-                monthCalculation: monthCalculation.rawValue,
-                dayResetMinutes: minutes,
-                storageMode: "cloud"
-            )
-            
-            let result = try await supabase.upsertSettings(settingsDTO)
-            print("[OnboardingViewModel] ✅ Settings synced. Result ID: \(result.id ?? "nil")")
-            return true
-        } catch {
-            print("[OnboardingViewModel] ❌ Failed to sync onboarding: \(error)")
-            await MainActor.run {
-                if let supabaseError = error as? SupabaseError {
-                    onboardingError = "Sync Failed: \(supabaseError.localizedDescription)"
-                } else {
-                    onboardingError = "Sync Failed: \(error.localizedDescription)"
-                }
-            }
-            return false
-        }
+        return true
     }
 }
