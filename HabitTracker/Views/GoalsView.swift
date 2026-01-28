@@ -1,28 +1,6 @@
 import SwiftUI
 import SwiftData
 
-private struct GoalsStackFrameKey: PreferenceKey {
-    static var defaultValue: CGRect = .zero
-
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        value = nextValue()
-    }
-}
-
-private struct RowStrideKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
-private enum AutoScrollDirection {
-    case up
-    case down
-    case none
-}
-
 /// Goals management view with tabbed layout and SwiftData persistence.
 struct GoalsView: View {
 
@@ -34,20 +12,6 @@ struct GoalsView: View {
     // Observe goals to trigger re-renders on changes, sorted by orderIndex
     @Query(sort: \GoalModel.orderIndex, order: .forward) private var allGoals: [GoalModel]
     @State private var orderedGoals: [GoalModel] = []
-    @State private var goalsStackFrame: CGRect = .zero
-    @State private var scrollViewHeight: CGFloat = 0
-    @State private var activeDragGoalId: UUID?
-    @State private var activeDragIndex: Int?
-    @State private var isReordering = false
-    @State private var isReorderMode = false
-    @State private var autoScrollDirection: AutoScrollDirection = .none
-    @State private var autoScrollAnchorIndex: Int?
-    @State private var measuredRowStride: CGFloat = 0
-    @State private var dragRowStride: CGFloat = 0
-
-    private let autoScrollTick = Timer.publish(every: 0.08, on: .main, in: .common).autoconnect()
-    private let autoScrollEdgeInset: CGFloat = 72
-    private let defaultRowStride: CGFloat = 84
 
     var body: some View {
         ZStack {
@@ -74,14 +38,9 @@ struct GoalsView: View {
             NavigationLogger.shared.logViewDisappear("GoalsView")
         }
         .onChange(of: allGoals) { _, _ in
-            if isReordering {
-                cancelDrag()
-            }
             syncOrderedGoals()
         }
         .onChange(of: viewModel.selectedTab) { _, _ in
-            cancelDrag()
-            isReorderMode = false
             syncOrderedGoals()
         }
         .sheet(isPresented: $viewModel.showingGoalForm) {
@@ -107,43 +66,22 @@ struct GoalsView: View {
             Spacer()
             
             // Add button
-            HStack(spacing: 8) {
-                Button {
-                    toggleReorderMode()
-                } label: {
-                    Text(isReorderMode ? "Done" : "Reorder")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(AppColors.textPrimary.opacity(0.9))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule()
-                                .fill(Color.white.opacity(0.06))
-                                .overlay(
-                                    Capsule()
-                                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                                )
-                        )
-                }
-                .buttonStyle(.plain)
-
-                Button { viewModel.addGoal() } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 22, weight: .medium))
-                        .foregroundColor(AppColors.textPrimary.opacity(0.8))
-                        .frame(width: 44, height: 44)
-                        .background(
-                            Circle()
-                                .fill(Color.white.opacity(0.05))
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
-                                )
-                        )
-                        .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
-                }
-                .buttonStyle(.plain)
+            Button { viewModel.addGoal() } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundColor(AppColors.textPrimary.opacity(0.8))
+                    .frame(width: 44, height: 44)
+                    .background(
+                        Circle()
+                            .fill(Color.white.opacity(0.05))
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                            )
+                    )
+                    .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
             }
+            .buttonStyle(.plain)
         }
         .padding(.leading, 4)
     }
@@ -151,49 +89,40 @@ struct GoalsView: View {
     // MARK: - Goals List
 
     private var goalsList: some View {
-        GeometryReader { scrollGeo in
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        header
-                            .padding(.top, AppSpacing.xl)
-                            .padding(.horizontal, AppSpacing.screenHorizontal)
-                            .padding(.bottom, AppSpacing.lg)
+        List {
+            header
+                .listRowInsets(EdgeInsets(
+                    top: AppSpacing.xl,
+                    leading: AppSpacing.screenHorizontal,
+                    bottom: AppSpacing.lg,
+                    trailing: AppSpacing.screenHorizontal
+                ))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
 
-                        GoalTabPicker(selection: Binding(
-                            get: { GoalFrequency(rawValue: viewModel.selectedTab) ?? .daily },
-                            set: { viewModel.selectedTab = $0.rawValue }
-                        ))
-                        .padding(.horizontal, AppSpacing.screenHorizontal)
-                        .padding(.bottom, AppSpacing.lg)
+            GoalTabPicker(selection: Binding(
+                get: { GoalFrequency(rawValue: viewModel.selectedTab) ?? .daily },
+                set: { viewModel.selectedTab = $0.rawValue }
+            ))
+            .listRowInsets(EdgeInsets(
+                top: 0,
+                leading: AppSpacing.screenHorizontal,
+                bottom: AppSpacing.lg,
+                trailing: AppSpacing.screenHorizontal
+            ))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
 
-                        goalsStack
-
-                        Color.clear
-                            .frame(height: 140)
-                    }
-                }
-                .coordinateSpace(name: "GoalsScroll")
-                .scrollDisabled(isReorderMode)
-                .onAppear {
-                    scrollViewHeight = scrollGeo.size.height
-                }
-                .onChange(of: scrollGeo.size.height) { _, newHeight in
-                    scrollViewHeight = newHeight
-                }
-                .onReceive(autoScrollTick) { _ in
-                    guard isReordering, autoScrollDirection != .none else { return }
-                    autoScrollStep(proxy: proxy)
-                }
-            }
-        }
-    }
-
-    private var goalsStack: some View {
-        VStack(spacing: 0) {
             if orderedGoals.isEmpty {
                 emptyState
-                    .padding(.horizontal, AppSpacing.screenHorizontal)
+                    .listRowInsets(EdgeInsets(
+                        top: 0,
+                        leading: AppSpacing.screenHorizontal,
+                        bottom: 0,
+                        trailing: AppSpacing.screenHorizontal
+                    ))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             } else {
                 ForEach(orderedGoals, id: \.id) { goal in
                     GoalRow(
@@ -202,220 +131,33 @@ struct GoalsView: View {
                         onToggleStatus: { viewModel.toggleStatus(goal) }
                     )
                     .padding(.vertical, 6)
-                    .padding(.horizontal, 8)
-                    .contentShape(Rectangle())
-                    .allowsHitTesting(!isReorderMode)
-                    .background(
-                        Group {
-                            if measuredRowStride == 0,
-                               orderedGoals.first?.id == goal.id {
-                                GeometryReader { proxy in
-                                    Color.clear.preference(
-                                        key: RowStrideKey.self,
-                                        value: proxy.size.height
-                                    )
-                                }
-                            } else {
-                                Color.clear
-                            }
+                    .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            viewModel.deleteGoal(goal)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
                         }
-                    )
-                    .id(goal.id)
+                    }
                 }
             }
-        }
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: GoalsStackFrameKey.self,
-                    value: proxy.frame(in: .named("GoalsScroll"))
-                )
-            }
-        )
-        .onPreferenceChange(GoalsStackFrameKey.self) { frame in
-            goalsStackFrame = frame
-        }
-        .onPreferenceChange(RowStrideKey.self) { height in
-            guard height > 0 else { return }
-            if measuredRowStride == 0 || abs(measuredRowStride - height) > 0.5 {
-                measuredRowStride = height
-            }
-        }
-        .overlay(reorderGestureOverlay)
-    }
 
-    private var reorderGestureOverlay: some View {
-        Group {
-            if isReorderMode {
-                Rectangle()
-                    .fill(Color.clear)
-                    .contentShape(Rectangle())
-                    .gesture(reorderGesture)
-            }
+            Color.clear
+                .frame(height: 140)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
         }
-    }
-
-    private var reorderGesture: some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .named("GoalsScroll"))
-            .onChanged { value in
-                if !isReordering {
-                    beginDrag(at: value.startLocation)
-                }
-                if isReordering {
-                    updateDrag(at: value.location)
-                }
-            }
-            .onEnded { _ in
-                endDrag()
-            }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
     }
 
     private func syncOrderedGoals() {
-        guard !isReordering else { return }
         orderedGoals = allGoals
             .filter { $0.recurrenceType == viewModel.selectedTab }
             .sorted { $0.orderIndex < $1.orderIndex }
-    }
-
-    private var rowStride: CGFloat {
-        guard !orderedGoals.isEmpty else { return 0 }
-        if dragRowStride > 0 {
-            return dragRowStride
-        }
-        if measuredRowStride > 0 {
-            return measuredRowStride
-        }
-        if goalsStackFrame.height > 0 {
-            return goalsStackFrame.height / CGFloat(orderedGoals.count)
-        }
-        return defaultRowStride
-    }
-
-    private func beginDrag(at location: CGPoint) {
-        guard !isReordering else { return }
-        guard !orderedGoals.isEmpty else { return }
-        guard goalsStackFrame != .zero else {
-            debugLog("beginDrag: goalsStackFrame is zero")
-            return
-        }
-        guard goalsStackFrame.contains(location) else { return }
-        let stride = rowStride
-        guard stride > 0 else {
-            debugLog("beginDrag: rowStride is zero")
-            return
-        }
-        guard let index = targetIndex(for: location.y, rowStride: stride) else {
-            debugLog("beginDrag: targetIndex nil")
-            return
-        }
-        isReordering = true
-        activeDragIndex = index
-        activeDragGoalId = orderedGoals[index].id
-        autoScrollAnchorIndex = index
-        dragRowStride = stride
-        debugLog("beginDrag: index=\(index) stride=\(stride) frame=\(goalsStackFrame)")
-    }
-
-    private func updateDrag(at location: CGPoint) {
-        guard isReordering, let currentIndex = activeDragIndex else {
-            debugLog("updateDrag: guard failed isReordering=\(isReordering) activeDragIndex=\(String(describing: activeDragIndex))")
-            return
-        }
-        updateAutoScroll(for: location.y)
-        let stride = rowStride
-        guard let targetIndex = targetIndex(for: location.y, rowStride: stride) else {
-            debugLog("updateDrag: targetIndex nil stride=\(stride) frame=\(goalsStackFrame)")
-            return
-        }
-        if currentIndex != targetIndex {
-            moveGoal(from: currentIndex, to: targetIndex)
-            activeDragIndex = targetIndex
-            autoScrollAnchorIndex = targetIndex
-        }
-    }
-
-    private func targetIndex(for dragLocationY: CGFloat, rowStride: CGFloat) -> Int? {
-        guard !orderedGoals.isEmpty, rowStride > 0 else { return nil }
-        let relativeY = dragLocationY - goalsStackFrame.minY
-        let adjustedY = relativeY - (rowStride / 2)
-        let rawIndex = Int(floor(adjustedY / rowStride))
-        return min(max(rawIndex, 0), orderedGoals.count - 1)
-    }
-
-    private func moveGoal(from sourceIndex: Int, to targetIndex: Int) {
-        guard sourceIndex != targetIndex else { return }
-        var updated = orderedGoals
-        let goal = updated.remove(at: sourceIndex)
-        updated.insert(goal, at: min(max(0, targetIndex), updated.count))
-        orderedGoals = updated
-    }
-
-    private func updateAutoScroll(for dragLocationY: CGFloat) {
-        guard scrollViewHeight > 0 else { return }
-        let topEdge = autoScrollEdgeInset
-        let bottomEdge = scrollViewHeight - autoScrollEdgeInset
-        if dragLocationY < topEdge {
-            autoScrollDirection = .up
-        } else if dragLocationY > bottomEdge {
-            autoScrollDirection = .down
-        } else {
-            autoScrollDirection = .none
-        }
-    }
-
-    private func autoScrollStep(proxy: ScrollViewProxy) {
-        guard let anchorIndex = autoScrollAnchorIndex else { return }
-        let direction = autoScrollDirection
-        guard direction != .none else { return }
-        let delta = direction == .up ? -1 : 1
-        let nextIndex = min(max(anchorIndex + delta, 0), orderedGoals.count - 1)
-        guard nextIndex != anchorIndex else { return }
-        autoScrollAnchorIndex = nextIndex
-        withAnimation(.linear(duration: 0.08)) {
-            proxy.scrollTo(orderedGoals[nextIndex].id, anchor: direction == .up ? .top : .bottom)
-        }
-    }
-
-    private func endDrag() {
-        guard activeDragGoalId != nil else { return }
-        autoScrollDirection = .none
-        autoScrollAnchorIndex = nil
-        activeDragGoalId = nil
-        activeDragIndex = nil
-        isReordering = false
-        dragRowStride = 0
-        persistGoalOrder()
-    }
-
-    private func cancelDrag() {
-        autoScrollDirection = .none
-        autoScrollAnchorIndex = nil
-        activeDragGoalId = nil
-        activeDragIndex = nil
-        isReordering = false
-        dragRowStride = 0
-    }
-
-    private func toggleReorderMode() {
-        if isReorderMode {
-            cancelDrag()
-            isReorderMode = false
-        } else {
-            isReorderMode = true
-        }
-    }
-
-    private func debugLog(_ message: String) {
-#if DEBUG
-        print("[GoalsReorder] \(message)")
-#endif
-    }
-
-    private func persistGoalOrder() {
-        for (index, goal) in orderedGoals.enumerated() {
-            goal.orderIndex = index
-        }
-        try? modelContext.save()
     }
 
     private var emptyState: some View {
