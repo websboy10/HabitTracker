@@ -84,18 +84,6 @@ struct HabitTrackerApp: App {
                         .allowsHitTesting(false)  // Disable interaction during fade-out
                 }
 
-                // Loading / Blocking overlay for sensitive states
-                if session.state == .restoringIdentity || session.state == .authenticating {
-                    // Optional: Add a spinner here if splash is already gone
-                    if splashRemoved {
-                        ZStack {
-                            Color.black.opacity(0.8).ignoresSafeArea()
-                            ProgressView()
-                                .tint(AppColors.primary)
-                        }
-                        .zIndex(99)
-                    }
-                }
             }
             .preferredColorScheme(.dark)
             // Two-phase transition: first reveal content, then remove splash

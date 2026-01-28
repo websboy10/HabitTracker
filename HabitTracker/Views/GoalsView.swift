@@ -84,41 +84,77 @@ struct GoalsView: View {
     // MARK: - Goals List
 
     private var goalsList: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                header
-                    .padding(.bottom, AppSpacing.lg)
-                    .padding(.horizontal, AppSpacing.screenHorizontal)
+        let goals = allGoals.filter { $0.recurrenceType == viewModel.selectedTab }
 
-                GoalTabPicker(selection: Binding(
-                    get: { GoalFrequency(rawValue: viewModel.selectedTab) ?? .daily },
-                    set: { viewModel.selectedTab = $0.rawValue }
+        return List {
+            header
+                .listRowInsets(EdgeInsets(
+                    top: AppSpacing.xl,
+                    leading: AppSpacing.screenHorizontal,
+                    bottom: AppSpacing.lg,
+                    trailing: AppSpacing.screenHorizontal
                 ))
-                .padding(.bottom, AppSpacing.lg)
-                .padding(.horizontal, AppSpacing.screenHorizontal)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
 
-                let goals = allGoals.filter { $0.recurrenceType == viewModel.selectedTab }
-                if goals.isEmpty {
-                    emptyState
-                } else {
-                    ReorderableGoalsList(
-                        goals: goals,
-                        onEdit: { viewModel.editGoal($0) },
-                        onToggleStatus: { viewModel.toggleStatus($0) },
-                        onReorder: { reorderedGoals in
-                            for (index, goal) in reorderedGoals.enumerated() {
-                                goal.orderIndex = index
-                            }
-                            try? modelContext.save()
-                        }
+            GoalTabPicker(selection: Binding(
+                get: { GoalFrequency(rawValue: viewModel.selectedTab) ?? .daily },
+                set: { viewModel.selectedTab = $0.rawValue }
+            ))
+            .listRowInsets(EdgeInsets(
+                top: 0,
+                leading: AppSpacing.screenHorizontal,
+                bottom: AppSpacing.lg,
+                trailing: AppSpacing.screenHorizontal
+            ))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+
+            if goals.isEmpty {
+                emptyState
+                    .listRowInsets(EdgeInsets(
+                        top: 0,
+                        leading: AppSpacing.screenHorizontal,
+                        bottom: 0,
+                        trailing: AppSpacing.screenHorizontal
+                    ))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            } else {
+                ForEach(goals, id: \.id) { goal in
+                    GoalRow(
+                        goal: goal,
+                        onEdit: { viewModel.editGoal(goal) },
+                        onToggleStatus: { viewModel.toggleStatus(goal) }
                     )
-                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
+                .onMove { offsets, destination in
+                    reorderGoals(goals, from: offsets, to: destination)
                 }
             }
-            .padding(.top, AppSpacing.xl)
-            .padding(.bottom, 140)
+
+            Color.clear
+                .frame(height: 140)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
         }
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        .environment(\.editMode, .constant(.active))
+    }
+
+    private func reorderGoals(_ goals: [GoalModel], from offsets: IndexSet, to destination: Int) {
+        var reordered = goals
+        reordered.move(fromOffsets: offsets, toOffset: destination)
+        for (index, goal) in reordered.enumerated() {
+            goal.orderIndex = index
+        }
+        try? modelContext.save()
     }
 
     private var emptyState: some View {
@@ -162,83 +198,6 @@ struct GoalsView: View {
                 .padding(.bottom, AppSpacing.md)
                 .background(AppColors.backgroundDark)
         }
-    }
-}
-
-// MARK: - Reorderable Goals List
-
-/// A goals list with invisible drag-to-reorder support.
-/// Long-press and drag to reorder. The card itself moves.
-struct ReorderableGoalsList: View {
-    let goals: [GoalModel]
-    let onEdit: (GoalModel) -> Void
-    let onToggleStatus: (GoalModel) -> Void
-    let onReorder: ([GoalModel]) -> Void
-
-    @State private var draggingGoal: GoalModel?
-    @State private var localGoals: [GoalModel] = []
-
-    var body: some View {
-        VStack(spacing: 12) {
-            ForEach(localGoals, id: \.id) { goal in
-                GoalRow(
-                    goal: goal,
-                    onEdit: { onEdit(goal) },
-                    onToggleStatus: { onToggleStatus(goal) }
-                )
-                .opacity(draggingGoal?.id == goal.id ? 0.01 : 1.0)
-                .onDrag {
-                    draggingGoal = goal
-                    return NSItemProvider(object: goal.id.uuidString as NSString)
-                }
-                .onDrop(of: [.text], delegate: GoalDropDelegate(
-                    goal: goal,
-                    goals: $localGoals,
-                    draggingGoal: $draggingGoal,
-                    onReorder: onReorder
-                ))
-            }
-        }
-        .onAppear {
-            localGoals = goals
-        }
-        .onChange(of: goals) { _, newGoals in
-            if draggingGoal == nil {
-                localGoals = newGoals
-            }
-        }
-    }
-}
-
-// MARK: - Goal Drop Delegate
-
-struct GoalDropDelegate: DropDelegate {
-    let goal: GoalModel
-    @Binding var goals: [GoalModel]
-    @Binding var draggingGoal: GoalModel?
-    let onReorder: ([GoalModel]) -> Void
-
-    func performDrop(info: DropInfo) -> Bool {
-        draggingGoal = nil
-        onReorder(goals)
-        return true
-    }
-
-    func dropEntered(info: DropInfo) {
-        guard let dragging = draggingGoal,
-              dragging.id != goal.id,
-              let fromIndex = goals.firstIndex(where: { $0.id == dragging.id }),
-              let toIndex = goals.firstIndex(where: { $0.id == goal.id }) else {
-            return
-        }
-
-        withAnimation(.easeInOut(duration: 0.2)) {
-            goals.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
-        }
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
     }
 }
 

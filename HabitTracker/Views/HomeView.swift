@@ -225,22 +225,19 @@ struct HomeView: View {
                 emptyObligationsState
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
             } else {
-                ReorderableObligationsList(
-                    obligations: obligations,
-                    isCurrentMonth: isCurrentMonth,
-                    canToggle: viewModel.canToggleObligation,
-                    onComplete: { obligation in
-                        withAnimation(AppAnimation.standard) {
-                            viewModel.completeObligation(obligation)
+                VStack(spacing: AppSpacing.md) {
+                    ForEach(obligations, id: \.obligation.id) { item in
+                        ObligationCard(
+                            obligation: item.obligation,
+                            goal: item.goal,
+                            canToggle: isCurrentMonth && viewModel.canToggleObligation(item.obligation)
+                        ) {
+                            withAnimation(AppAnimation.standard) {
+                                viewModel.completeObligation(item.obligation)
+                            }
                         }
-                    },
-                    onReorder: { reorderedObligations in
-                        for (index, item) in reorderedObligations.enumerated() {
-                            item.goal.orderIndex = index
-                        }
-                        try? modelContext.save()
                     }
-                )
+                }
             }
         }
     }
@@ -355,12 +352,11 @@ struct HomeView: View {
                 }
             } label: {
                 HStack(spacing: 6) {
-                    Text("\(monthLabel.uppercased()) \(selectedYear)")
+                    Text("\(monthLabel.uppercased()) \(String(format: "%04d", selectedYear))")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(AppColors.primary)
                         .tracking(1)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.9)
+                        .fixedSize(horizontal: true, vertical: false)
                         .layoutPriority(1)
 
                     Image(systemName: "chevron.down")
@@ -502,86 +498,6 @@ struct HomeView: View {
                 .padding(.bottom, AppSpacing.md)
                 .background(AppColors.backgroundDark)
         }
-    }
-}
-
-// MARK: - Reorderable Obligations List
-
-/// An obligations list with invisible drag-to-reorder support.
-/// Long-press and drag to reorder. The card itself moves.
-struct ReorderableObligationsList: View {
-    let obligations: [(obligation: ObligationModel, goal: GoalModel)]
-    let isCurrentMonth: Bool
-    let canToggle: (ObligationModel) -> Bool
-    let onComplete: (ObligationModel) -> Void
-    let onReorder: ([(obligation: ObligationModel, goal: GoalModel)]) -> Void
-
-    @State private var draggingItem: (obligation: ObligationModel, goal: GoalModel)?
-    @State private var localObligations: [(obligation: ObligationModel, goal: GoalModel)] = []
-
-    var body: some View {
-        VStack(spacing: AppSpacing.md) {
-            ForEach(localObligations, id: \.obligation.id) { item in
-                ObligationCard(
-                    obligation: item.obligation,
-                    goal: item.goal,
-                    canToggle: isCurrentMonth && canToggle(item.obligation)
-                ) {
-                    onComplete(item.obligation)
-                }
-                .opacity(draggingItem?.obligation.id == item.obligation.id ? 0.01 : 1.0)
-                .onDrag {
-                    draggingItem = item
-                    return NSItemProvider(object: item.obligation.id.uuidString as NSString)
-                }
-                .onDrop(of: [.text], delegate: ObligationDropDelegate(
-                    item: item,
-                    obligations: $localObligations,
-                    draggingItem: $draggingItem,
-                    onReorder: onReorder
-                ))
-            }
-        }
-        .onAppear {
-            localObligations = obligations
-        }
-        .onChange(of: obligations.map { $0.obligation.id }) { _, _ in
-            if draggingItem == nil {
-                localObligations = obligations
-            }
-        }
-    }
-}
-
-// MARK: - Obligation Drop Delegate
-
-struct ObligationDropDelegate: DropDelegate {
-    let item: (obligation: ObligationModel, goal: GoalModel)
-    @Binding var obligations: [(obligation: ObligationModel, goal: GoalModel)]
-    @Binding var draggingItem: (obligation: ObligationModel, goal: GoalModel)?
-    let onReorder: ([(obligation: ObligationModel, goal: GoalModel)]) -> Void
-
-    func performDrop(info: DropInfo) -> Bool {
-        draggingItem = nil
-        onReorder(obligations)
-        return true
-    }
-
-    func dropEntered(info: DropInfo) {
-        guard let dragging = draggingItem,
-              dragging.obligation.id != item.obligation.id,
-              let fromIndex = obligations.firstIndex(where: { $0.obligation.id == dragging.obligation.id }),
-              let toIndex = obligations.firstIndex(where: { $0.obligation.id == item.obligation.id }) else {
-            return
-        }
-
-        withAnimation(.easeInOut(duration: 0.2)) {
-            obligations.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
-        }
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
     }
 }
 

@@ -254,12 +254,11 @@ struct StatsView: View {
                 }
             } label: {
                 HStack(spacing: 6) {
-                    Text("\(selectedMonthName.uppercased()) \(selectedYear)")
+                    Text("\(selectedMonthName.uppercased()) \(String(format: "%04d", selectedYear))")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(AppColors.primary)
                         .tracking(1)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.9)
+                        .fixedSize(horizontal: true, vertical: false)
                         .layoutPriority(1)
                     
                     Image(systemName: "chevron.down")
