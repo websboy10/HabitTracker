@@ -320,7 +320,7 @@ final class SettingsStore {
         self.reduceMotion = defaults.bool(forKey: "reduceMotion")
         self.weekStart = WeekStart(rawValue: defaults.string(forKey: "weekStart") ?? "") ?? .monday
         self.monthCalculation = MonthCalculation(rawValue: defaults.string(forKey: "monthCalculation") ?? "") ?? .calendar
-        self.dayResetMinutes = defaults.object(forKey: "dayResetMinutes") as? Int ?? 240 // 4:00 AM default
+        self.dayResetMinutes = defaults.object(forKey: "dayResetMinutes") as? Int ?? 0 // 12:00 AM default
         self.gracePeriodMinutes = defaults.object(forKey: "gracePeriodMinutes") as? Int ?? 0 // No grace by default
         self.userName = defaults.string(forKey: "userName") ?? "User"
         self.userTitle = defaults.string(forKey: "userTitle") ?? "Habit Enthusiast"
@@ -434,7 +434,7 @@ final class SettingsStore {
         reduceMotion = false
         weekStart = .monday
         monthCalculation = .calendar
-        dayResetMinutes = 240
+        dayResetMinutes = 0
         gracePeriodMinutes = 0
         userName = "User"
         userTitle = "Habit Enthusiast"

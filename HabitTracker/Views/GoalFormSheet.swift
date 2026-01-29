@@ -12,8 +12,7 @@ struct GoalFormSheet: View {
 
     // Form state
     @State private var title: String = ""
-    @State private var selectedCategoryName: String = "Health"
-    @State private var selectedCategoryColorHex: String = "D11A2A"
+    @State private var selectedCategory: GoalCategory?
     @State private var recurrenceType: String = "daily"
     @State private var selectedWeekdays: Set<Int> = []
     @State private var scheduledTime: Date = Date()
@@ -28,22 +27,20 @@ struct GoalFormSheet: View {
     @State private var showRecurrenceOptions: Bool = true
     @State private var showDeleteConfirmation: Bool = false
     @State private var showNotificationTimePicker: Bool = false
+    @State private var showNewCategoryPrompt: Bool = false
+    @State private var newCategoryName: String = ""
+    @State private var pendingLegacyCategoryName: String?
+    @State private var pendingLegacyCategoryColorHex: String?
+    @State private var didSeedCategories: Bool = false
 
-    // Static category options (no longer a SwiftData model)
-    private static let categoryOptions: [(name: String, colorHex: String)] = [
-        ("Health", "D11A2A"),
-        ("Focus", "6366F1"),
-        ("Learning", "8B8B8B"),
-        ("Fitness", "10B981"),
-        ("Personal", "F59E0B"),
-        ("Finance", "6366F1"),
-        ("Household", "F59E0B"),
-        ("Family", "F43F5E"),
-        ("Social", "8B8B8B"),
-    ]
+    @Query(sort: \GoalCategory.createdAt, order: .forward) private var categories: [GoalCategory]
 
     @Namespace private var animation
     @FocusState private var isTextFieldFocused: Bool
+
+    init(editingGoal: GoalModel?) {
+        self.editingGoal = editingGoal
+    }
 
     var body: some View {
         NavigationStack {
@@ -125,7 +122,22 @@ struct GoalFormSheet: View {
             .toolbarBackground(.hidden, for: .navigationBar)
         }
         .onAppear {
+            seedSystemCategoriesIfNeeded()
             loadExistingGoal()
+            resolveInitialCategorySelection()
+        }
+        .onChange(of: categories) { _, _ in
+            resolveInitialCategorySelection()
+        }
+        .alert("New category", isPresented: $showNewCategoryPrompt) {
+            TextField("Category name", text: $newCategoryName)
+            Button("Cancel", role: .cancel) {
+                newCategoryName = ""
+            }
+            Button("Create") {
+                createCategory()
+            }
+            .disabled(!canCreateCategory)
         }
     }
 
@@ -146,24 +158,24 @@ struct GoalFormSheet: View {
     private var categoryPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(Self.categoryOptions, id: \.name) { option in
-                    categoryChip(name: option.name, colorHex: option.colorHex)
+                ForEach(categories) { category in
+                    categoryChip(category)
                 }
+                addCategoryButton
             }
         }
     }
 
-    private func categoryChip(name: String, colorHex: String) -> some View {
-        let isSelected = selectedCategoryName == name
-        let color = Color(hex: UInt(colorHex, radix: 16) ?? 0xD11A2A)
+    private func categoryChip(_ category: GoalCategory) -> some View {
+        let isSelected = selectedCategory?.id == category.id
+        let color = Color(hex: UInt(category.colorHex, radix: 16) ?? 0xD11A2A)
 
         return Button {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                selectedCategoryName = name
-                selectedCategoryColorHex = colorHex
+                selectedCategory = category
             }
         } label: {
-            Text(name)
+            Text(category.name)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(isSelected ? .white : color)
                 .padding(.horizontal, 16)
@@ -186,6 +198,28 @@ struct GoalFormSheet: View {
                 )
         }
         .buttonStyle(.plain)
+    }
+
+    private var addCategoryButton: some View {
+        Button {
+            newCategoryName = ""
+            showNewCategoryPrompt = true
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(AppColors.textSecondary)
+                .frame(width: 32, height: 32)
+                .background(
+                    Capsule()
+                        .fill(Color.white.opacity(0.05))
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add category")
     }
 
     // MARK: - Time Section
@@ -638,9 +672,8 @@ struct GoalFormSheet: View {
         useCustomNotificationTime = false
 
         guard let goal = editingGoal else {
-            // Set default category (first in static list)
-            selectedCategoryName = Self.categoryOptions.first?.name ?? "Health"
-            selectedCategoryColorHex = Self.categoryOptions.first?.colorHex ?? "D11A2A"
+            pendingLegacyCategoryName = nil
+            pendingLegacyCategoryColorHex = nil
             recurrenceType = "daily"
             showRecurrenceOptions = true
             monthlyDayOfMonth = Calendar.current.component(.day, from: Date())
@@ -648,8 +681,14 @@ struct GoalFormSheet: View {
         }
 
         title = goal.title
-        selectedCategoryName = goal.categoryName
-        selectedCategoryColorHex = goal.categoryColorHex
+        selectedCategory = goal.category
+        if goal.category == nil {
+            pendingLegacyCategoryName = goal.categoryName
+            pendingLegacyCategoryColorHex = goal.categoryColorHex
+        } else {
+            pendingLegacyCategoryName = nil
+            pendingLegacyCategoryColorHex = nil
+        }
         recurrenceType = ["daily", "weekly", "monthly", "none"].contains(goal.recurrenceType)
             ? goal.recurrenceType
             : "daily"
@@ -676,15 +715,83 @@ struct GoalFormSheet: View {
         showRecurrenceOptions = recurrenceType != "none"
     }
 
+    private func seedSystemCategoriesIfNeeded() {
+        guard !didSeedCategories else { return }
+        didSeedCategories = true
+        let count = (try? modelContext.fetchCount(FetchDescriptor<GoalCategory>())) ?? 0
+        guard count == 0 else { return }
+
+        for option in GoalCategory.systemDefaults {
+            let category = GoalCategory(
+                name: option.name,
+                colorHex: option.colorHex,
+                isSystemCategory: true
+            )
+            modelContext.insert(category)
+        }
+        try? modelContext.save()
+    }
+
+    private func resolveInitialCategorySelection() {
+        guard selectedCategory == nil else { return }
+        guard !categories.isEmpty else { return }
+
+        if let preferredName = pendingLegacyCategoryName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !preferredName.isEmpty {
+            if let match = categories.first(where: { $0.name.caseInsensitiveCompare(preferredName) == .orderedSame }) {
+                selectedCategory = match
+            } else {
+                let legacyHex = pendingLegacyCategoryColorHex?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let colorHex = (legacyHex?.isEmpty == false ? legacyHex : nil)
+                    ?? GoalCategory.nextColorHex(existing: categories)
+                let created = GoalCategory(name: preferredName, colorHex: colorHex)
+                modelContext.insert(created)
+                selectedCategory = created
+                try? modelContext.save()
+            }
+        } else {
+            selectedCategory = categories.first
+        }
+
+        pendingLegacyCategoryName = nil
+        pendingLegacyCategoryColorHex = nil
+    }
+
+    private var canCreateCategory: Bool {
+        let trimmed = newCategoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return !isDuplicateCategoryName(trimmed)
+    }
+
+    private func createCategory() {
+        let trimmed = newCategoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard !isDuplicateCategoryName(trimmed) else { return }
+
+        let colorHex = GoalCategory.nextColorHex(existing: categories)
+        let category = GoalCategory(name: trimmed, colorHex: colorHex)
+        modelContext.insert(category)
+        selectedCategory = category
+        try? modelContext.save()
+        newCategoryName = ""
+        showNewCategoryPrompt = false
+    }
+
+    private func isDuplicateCategoryName(_ name: String) -> Bool {
+        categories.contains { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+    }
+
     private func saveGoal() {
         let obligationScheduler = ObligationScheduler(modelContext: modelContext)
         let calendar = Calendar.current
+        let effectiveCategory = selectedCategory ?? categories.first
 
         if let goal = editingGoal {
             // Update existing goal
             goal.title = title
-            goal.categoryName = selectedCategoryName
-            goal.categoryColorHex = selectedCategoryColorHex
+            goal.category = effectiveCategory
+            goal.categoryName = nil
+            goal.categoryColorHex = nil
             goal.recurrenceType = recurrenceType
             goal.weekdays = Array(selectedWeekdays)
             goal.scheduledTime = hasScheduledTime ? scheduledTime : nil
@@ -716,8 +823,7 @@ struct GoalFormSheet: View {
             let nextOrderIndex = computeNextOrderIndex()
             let goal = GoalModel(
                 title: title,
-                categoryName: selectedCategoryName,
-                categoryColorHex: selectedCategoryColorHex,
+                category: effectiveCategory,
                 recurrenceType: recurrenceType,
                 weekdays: Array(selectedWeekdays),
                 scheduledTime: hasScheduledTime ? scheduledTime : nil,

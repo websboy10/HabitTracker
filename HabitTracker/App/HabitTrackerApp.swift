@@ -18,6 +18,7 @@ struct HabitTrackerApp: App {
         do {
             let schema = Schema([
                 GoalModel.self,
+                GoalCategory.self,
                 ObligationModel.self,
                 WeeklyNoteModel.self,
                 SnapshotModel.self
@@ -35,12 +36,9 @@ struct HabitTrackerApp: App {
         }
     }
     
-    /// Controls when main content is rendered (happens BEFORE splash removal)
+    /// Controls when main content is rendered (happens BEFORE splash is fully hidden)
     @State private var splashFinished = false
 
-    /// Controls when splash view is removed from hierarchy (happens AFTER main content appears)
-    @State private var splashRemoved = false
-    
     /// Prevents duplicate post-unlock syncs within the same running session
     @State private var didRunPostUnlockTasks = false
 
@@ -52,7 +50,7 @@ struct HabitTrackerApp: App {
 
                 // Main State Switcher
                 // Renders main content as soon as splash signals finish (while splash is still at opacity 0)
-                // This ensures content is ready BEFORE splash is removed from hierarchy
+                // This ensures content is ready before splash has fully faded away
                 Group {
                     if splashFinished {
                         switch session.entryState {
@@ -77,27 +75,14 @@ struct HabitTrackerApp: App {
                 .zIndex(1)
 
                 // Splash screen (Overlay)
-                // Removed via splashRemoved which is set AFTER main content is rendered
-                if !splashRemoved {
-                    SplashScreen(isFinished: $splashFinished)
-                        .zIndex(100)
-                        .allowsHitTesting(false)  // Disable interaction during fade-out
-                }
+                SplashScreen(isFinished: $splashFinished)
+                    .opacity(splashFinished ? 0 : 1)
+                    .allowsHitTesting(false)  // Disable interaction during fade-out
+                    .zIndex(100)
 
             }
             .preferredColorScheme(.dark)
-            // Two-phase transition: first reveal content, then remove splash
-            .onChange(of: splashFinished) { _, finished in
-                if finished {
-                    attemptSplashRemoval()
-                }
-            }
-            .onChange(of: session.state) { _, _ in
-                attemptSplashRemoval()
-            }
-            .onChange(of: session.entryState) { _, _ in
-                attemptSplashRemoval()
-            }
+            // Two-phase transition: first reveal content, then keep splash hidden but still in hierarchy
             .task {
                 // Provide model container to AppDelegate for foreground notification refresh
                 appDelegate.modelContainer = modelContainer
@@ -148,14 +133,7 @@ struct HabitTrackerApp: App {
     private var contentReady: Bool {
         session.entryState != .loading
     }
-    
-    private func attemptSplashRemoval() {
-        guard splashFinished, contentReady, !splashRemoved else { return }
-        DispatchQueue.main.async {
-            splashRemoved = true
-        }
-    }
-    
+
     private func runPostUnlockTasksIfNeeded() {
         guard session.state == .running else { return }
         guard !session.securityLock else { return }

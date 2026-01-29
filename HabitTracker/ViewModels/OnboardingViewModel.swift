@@ -63,7 +63,7 @@ final class OnboardingViewModel {
     var monthCalculation: MonthCalculation = .calendar {
         didSet { UserDefaults.standard.set(monthCalculation.rawValue, forKey: "monthCalculation") }
     }
-    var dayResetTime: Date = Calendar.current.date(from: DateComponents(hour: 4, minute: 0)) ?? Date() {
+    var dayResetTime: Date = Calendar.current.date(from: DateComponents(hour: 0, minute: 0)) ?? Date() {
         didSet {
             let calendar = Calendar.current
             let components = calendar.dateComponents([.hour, .minute], from: dayResetTime)

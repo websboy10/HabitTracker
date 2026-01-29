@@ -153,11 +153,15 @@ final class SyncService: ObservableObject {
                     continue
                 }
                 let scheduledTime = remote.scheduledTime.flatMap { iso8601Formatter.date(from: $0) }
+                let resolvedCategory = resolveCategory(
+                    name: remote.categoryName,
+                    colorHex: remote.categoryColorHex,
+                    in: modelContext
+                )
                 let local = GoalModel(
                     id: id,
                     title: remote.title,
-                    categoryName: remote.categoryName ?? "General",
-                    categoryColorHex: remote.categoryColorHex ?? "D11A2A",
+                    category: resolvedCategory,
                     recurrenceType: remote.recurrenceType ?? "none",
                     weekdays: remote.weekdays ?? [],
                     scheduledTime: scheduledTime,
@@ -169,7 +173,7 @@ final class SyncService: ObservableObject {
             } else if let local = localDict[id] {
                 // CLOUD WINS: Always apply remote state to local
                 // This is the key invariant - cloud is source of truth
-                applyRemoteGoal(remote, to: local)
+                applyRemoteGoal(remote, to: local, modelContext: modelContext)
             }
         }
         
@@ -180,8 +184,8 @@ final class SyncService: ObservableObject {
                 let dto = GoalDTO(
                     id: id.uuidString,
                     userId: userId,
-                    categoryName: local.categoryName,
-                    categoryColorHex: local.categoryColorHex,
+                    categoryName: local.categoryDisplayName,
+                    categoryColorHex: local.categoryDisplayColorHex,
                     title: local.title,
                     frequency: "daily",
                     status: local.status,
@@ -292,8 +296,8 @@ final class SyncService: ObservableObject {
         let dto = GoalDTO(
             id: goal.id.uuidString,
             userId: userId,
-            categoryName: goal.categoryName,
-            categoryColorHex: goal.categoryColorHex,
+            categoryName: goal.categoryDisplayName,
+            categoryColorHex: goal.categoryDisplayColorHex,
             title: goal.title,
             frequency: "daily", // Legacy compatibility
             status: goal.status,
@@ -324,8 +328,8 @@ final class SyncService: ObservableObject {
         let dto = GoalDTO(
             id: goal.id.uuidString,
             userId: userId,
-            categoryName: goal.categoryName,
-            categoryColorHex: goal.categoryColorHex,
+            categoryName: goal.categoryDisplayName,
+            categoryColorHex: goal.categoryDisplayColorHex,
             title: goal.title,
             frequency: "daily", // Legacy compatibility
             status: goal.status,
@@ -732,7 +736,7 @@ final class SyncService: ObservableObject {
     
     // MARK: - Apply Remote Goal Helper
     
-    private func applyRemoteGoal(_ remote: GoalDTO, to local: GoalModel) {
+    private func applyRemoteGoal(_ remote: GoalDTO, to local: GoalModel, modelContext: ModelContext) {
         local.title = remote.title
         local.recurrenceType = remote.recurrenceType ?? "none"
         local.weekdays = remote.weekdays ?? []
@@ -740,15 +744,36 @@ final class SyncService: ObservableObject {
         local.monthlyDayOfMonth = remote.monthlyDayOfMonth
         local.scheduledTime = remote.scheduledTime.flatMap { iso8601Formatter.date(from: $0) }
         local.status = remote.status ?? "active"
-        if let name = remote.categoryName {
-            local.categoryName = name
-        }
-        if let hex = remote.categoryColorHex {
-            local.categoryColorHex = hex
-        }
+        local.category = resolveCategory(
+            name: remote.categoryName,
+            colorHex: remote.categoryColorHex,
+            in: modelContext
+        )
+        local.categoryName = nil
+        local.categoryColorHex = nil
         if let updatedAt = remote.updatedAt.flatMap({ iso8601Formatter.date(from: $0) }) {
             local.updatedAt = updatedAt
         }
+    }
+
+    private func resolveCategory(
+        name: String?,
+        colorHex: String?,
+        in modelContext: ModelContext
+    ) -> GoalCategory? {
+        let trimmed = (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let existingDescriptor = FetchDescriptor<GoalCategory>()
+        let existing = (try? modelContext.fetch(existingDescriptor)) ?? []
+        if let match = existing.first(where: { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return match
+        }
+
+        let resolvedHex = colorHex ?? GoalCategory.nextColorHex(existing: existing)
+        let category = GoalCategory(name: trimmed, colorHex: resolvedHex)
+        modelContext.insert(category)
+        return category
     }
 }
 

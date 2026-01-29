@@ -5,6 +5,7 @@ enum PreviewModelContainer {
     static let container: ModelContainer = {
         let schema = Schema([
             GoalModel.self,
+            GoalCategory.self,
             ObligationModel.self,
             WeeklyNoteModel.self,
             SnapshotModel.self

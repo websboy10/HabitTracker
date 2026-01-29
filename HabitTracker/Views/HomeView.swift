@@ -531,7 +531,7 @@ struct ObligationCard: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                     HStack(spacing: 6) {
-                        Text(goal.categoryName)
+                        Text(goal.categoryDisplayName)
                             .font(.system(size: 10, weight: .medium))
                             .foregroundColor(goal.categoryColor.opacity(0.8))
 

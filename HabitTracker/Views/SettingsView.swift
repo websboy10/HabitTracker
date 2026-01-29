@@ -306,16 +306,6 @@ struct SettingsView: View {
             GlassCard {
                 VStack(spacing: 0) {
                     SettingsToggleRow(
-                        icon: "waveform",
-                        label: "Reduce Motion",
-                        isOn: $settings.reduceMotion,
-                        reduceMotion: settings.reduceMotion
-                    )
-                    
-                    Divider()
-                        .background(Color.white.opacity(0.05))
-                    
-                    SettingsToggleRow(
                         icon: "iphone.radiowaves.left.and.right",
                         label: "Haptic Feedback",
                         isOn: $settings.hapticFeedback,

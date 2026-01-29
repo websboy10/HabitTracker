@@ -299,6 +299,7 @@ final class AppSessionManager: ObservableObject {
             NotificationEngine.shared.clearNotificationSettingsOnLogout()
             UserDefaults.standard.removeObject(forKey: "pendingAccountDeletion")
             state = .unauthenticated
+            transitionEntryState(to: .unauthenticated)
             unlockSecurityOperations(reason: "delete-account-complete")
             
             SyncLogger.logAccount("Account deletion complete")

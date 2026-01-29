@@ -224,7 +224,7 @@ struct GoalRow: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
-                    Text(goal.categoryName)
+                    Text(goal.categoryDisplayName)
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(accent.opacity(goal.isActive ? 0.9 : 0.6))
                         .textCase(.uppercase)

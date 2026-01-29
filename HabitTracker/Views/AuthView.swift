@@ -341,6 +341,14 @@ struct AuthView: View {
             
             authErrorBanner
 
+            // Terms text
+            Text("By creating an account, you accept our [terms of service and privacy policy](https://n0-1-landing-page.vercel.app/?legal=terms)")
+                .font(AppTypography.micro)
+                .foregroundColor(Color.white.opacity(0.3))
+                .multilineTextAlignment(.center)
+                .padding(.top, AppSpacing.sm)
+                .padding(.bottom, AppSpacing.sm)
+
             // Sign up button
             AuthPrimaryButton(
                 title: "Create Account",
@@ -353,13 +361,6 @@ struct AuthView: View {
             .padding(.top, AppSpacing.md + 4)
             .opacity(canSignUp ? 1 : 0.5)
             .disabled(!canSignUp)
-
-            // Terms text
-            Text("By creating an account, you agree to our Terms of Service and Privacy Policy")
-                .font(AppTypography.micro)
-                .foregroundColor(Color.white.opacity(0.3))
-                .multilineTextAlignment(.center)
-                .padding(.top, AppSpacing.md)
         }
         .padding(AppSpacing.xl)
         .background(authCardBackground)

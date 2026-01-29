@@ -13,11 +13,14 @@ final class GoalModel {
     /// Goal title (e.g., "Morning Hydration")
     var title: String
 
-    /// Category Name (e.g., "Health")
-    var categoryName: String = "General"
+    /// Relationship to a first-class category model
+    @Relationship var category: GoalCategory?
 
-    /// Category Color Hex (e.g., "D11A2A")
-    var categoryColorHex: String = "D11A2A"
+    /// Legacy category name (string-based). Kept for safe fallback only.
+    var categoryName: String?
+
+    /// Legacy category color hex (string-based). Kept for safe fallback only.
+    var categoryColorHex: String?
 
     /// Recurrence type: "none" (one-off), "daily", "weekly", "monthly", "custom"
     /// Default to "daily" for backward compatibility with old frequency-based goals
@@ -63,8 +66,9 @@ final class GoalModel {
     init(
         id: UUID = UUID(),
         title: String,
-        categoryName: String = "General",
-        categoryColorHex: String = "D11A2A",
+        category: GoalCategory? = nil,
+        categoryName: String? = nil,
+        categoryColorHex: String? = nil,
         recurrenceType: String = "none",
         weekdays: [Int] = [],
         scheduledTime: Date? = nil,
@@ -80,6 +84,7 @@ final class GoalModel {
     ) {
         self.id = id
         self.title = title
+        self.category = category
         self.categoryName = categoryName
         self.categoryColorHex = categoryColorHex
         self.recurrenceType = recurrenceType
@@ -182,8 +187,18 @@ final class GoalModel {
         requiredCount > 1
     }
     
+    /// Display name for the category with legacy fallback
+    var categoryDisplayName: String {
+        category?.name ?? categoryName ?? "General"
+    }
+
+    /// Display hex for the category with legacy fallback
+    var categoryDisplayColorHex: String {
+        category?.colorHex ?? categoryColorHex ?? "D11A2A"
+    }
+
     /// SwiftUI Color for the category
     var categoryColor: SwiftUI.Color {
-        SwiftUI.Color(hex: UInt(categoryColorHex, radix: 16) ?? 0xD11A2A)
+        SwiftUI.Color(hex: UInt(categoryDisplayColorHex, radix: 16) ?? 0xD11A2A)
     }
 }

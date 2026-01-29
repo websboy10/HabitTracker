@@ -289,8 +289,8 @@ final class DataService: ObservableObject {
         let dto = GoalDTO(
             id: goal.id.uuidString,
             userId: userId,
-            categoryName: goal.categoryName,
-            categoryColorHex: goal.categoryColorHex,
+            categoryName: goal.categoryDisplayName,
+            categoryColorHex: goal.categoryDisplayColorHex,
             title: goal.title,
             frequency: "daily",
             status: goal.status,

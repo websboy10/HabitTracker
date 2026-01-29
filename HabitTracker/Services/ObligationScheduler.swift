@@ -76,7 +76,7 @@ final class ObligationScheduler {
     // MARK: - Today's Obligations
 
     /// Fetch today's obligations with their associated goals.
-    /// Category info is available directly on GoalModel via categoryName and categoryColorHex.
+    /// Category info is available directly on GoalModel via category relationship + display helpers.
     /// Sorted by goal orderIndex first, then by scheduledAt for stable user-defined ordering.
     func fetchTodaysObligations() -> [(obligation: ObligationModel, goal: GoalModel)] {
         let today = calendar.startOfDay(for: Date())

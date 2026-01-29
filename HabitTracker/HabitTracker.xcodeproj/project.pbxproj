@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		1A000001286D400000000001 /* HabitTrackerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000002286D400000000001 /* HabitTrackerApp.swift */; };
 		1A000003286D400000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000004286D400000000002 /* ContentView.swift */; };
-		A94E8D0C7F9247849B016305 /* PreviewModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B6626249D3E4CBFA740956F /* PreviewModelContainer.swift */; };
 		1A000005286D400000000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1A000006286D400000000003 /* Assets.xcassets */; };
 		1A000007286D400000000004 /* AppColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000008286D400000000004 /* AppColors.swift */; };
 		1A000009286D400000000005 /* AppTypography.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00000A286D400000000005 /* AppTypography.swift */; };
@@ -53,12 +52,6 @@
 		1A000085286D400000000065 /* WeeklyNoteModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000084286D400000000064 /* WeeklyNoteModel.swift */; };
 		1A000087286D400000000067 /* WeeklyNoteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000086286D400000000066 /* WeeklyNoteSheet.swift */; };
 		1A000089286D400000000069 /* WeekOverviewCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000088286D400000000068 /* WeekOverviewCard.swift */; };
-		2C876D8EFB2A3FA670837B5A /* ArchivedDataIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF01FA9E1D6240CDA0600363 /* ArchivedDataIndicator.swift */; };
-		D1347120363C2B310653F610 /* MissingSnapshotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69853FC208E384B34801168A /* MissingSnapshotView.swift */; };
-		CD18FC9FB6494384932AF3BD /* SnapshotModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D382729BD51E13C68BF56155 /* SnapshotModel.swift */; };
-		A6FE8102C0FA7A26774E22AF /* SnapshotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A83E50FD9BC840E2A1847FB9 /* SnapshotService.swift */; };
-		3993A69E2CA7956518F22441 /* SnapshotDataTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B49CD206A577ECD1CD15E285 /* SnapshotDataTypes.swift */; };
-		4283FEFC63F0CD0E873A0000 /* SupabaseConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6D07EF7B77E90D3593AD699 /* SupabaseConfig.swift */; };
 		1A0000A0286D400000000070 /* NotificationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000A1286D400000000071 /* NotificationEngine.swift */; };
 		1A0000B0286D400000000080 /* AuthEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000B1286D400000000081 /* AuthEngine.swift */; };
 		1A0000B2286D400000000082 /* StorageMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000B3286D400000000083 /* StorageMode.swift */; };
@@ -71,12 +64,19 @@
 		1A0000C0286D400000000090 /* CalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000C1286D400000000091 /* CalendarService.swift */; };
 		1A0000C2286D400000000092 /* ResetScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000C3286D400000000093 /* ResetScrollView.swift */; };
 		1A0000C4286D400000000094 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000C5286D400000000095 /* AppDelegate.swift */; };
+		1A0000C6286D400000000096 /* GoalCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000C7286D400000000097 /* GoalCategory.swift */; };
+		2C876D8EFB2A3FA670837B5A /* ArchivedDataIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF01FA9E1D6240CDA0600363 /* ArchivedDataIndicator.swift */; };
+		3993A69E2CA7956518F22441 /* SnapshotDataTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B49CD206A577ECD1CD15E285 /* SnapshotDataTypes.swift */; };
+		4283FEFC63F0CD0E873A0000 /* SupabaseConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6D07EF7B77E90D3593AD699 /* SupabaseConfig.swift */; };
+		A6FE8102C0FA7A26774E22AF /* SnapshotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A83E50FD9BC840E2A1847FB9 /* SnapshotService.swift */; };
+		A94E8D0C7F9247849B016305 /* PreviewModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B6626249D3E4CBFA740956F /* PreviewModelContainer.swift */; };
+		CD18FC9FB6494384932AF3BD /* SnapshotModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D382729BD51E13C68BF56155 /* SnapshotModel.swift */; };
+		D1347120363C2B310653F610 /* MissingSnapshotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69853FC208E384B34801168A /* MissingSnapshotView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		1A000002286D400000000001 /* HabitTrackerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitTrackerApp.swift; sourceTree = "<group>"; };
 		1A000004286D400000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		1B6626249D3E4CBFA740956F /* PreviewModelContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewModelContainer.swift; sourceTree = "<group>"; };
 		1A000006286D400000000003 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		1A000008286D400000000004 /* AppColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppColors.swift; sourceTree = "<group>"; };
 		1A00000A286D400000000005 /* AppTypography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTypography.swift; sourceTree = "<group>"; };
@@ -121,13 +121,7 @@
 		1A000084286D400000000064 /* WeeklyNoteModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyNoteModel.swift; sourceTree = "<group>"; };
 		1A000086286D400000000066 /* WeeklyNoteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyNoteSheet.swift; sourceTree = "<group>"; };
 		1A000088286D400000000068 /* WeekOverviewCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekOverviewCard.swift; sourceTree = "<group>"; };
-		EF01FA9E1D6240CDA0600363 /* ArchivedDataIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchivedDataIndicator.swift; sourceTree = "<group>"; };
-		69853FC208E384B34801168A /* MissingSnapshotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissingSnapshotView.swift; sourceTree = "<group>"; };
 		1A0000A1286D400000000071 /* NotificationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationEngine.swift; sourceTree = "<group>"; };
-		D382729BD51E13C68BF56155 /* SnapshotModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotModel.swift; sourceTree = "<group>"; };
-		A83E50FD9BC840E2A1847FB9 /* SnapshotService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotService.swift; sourceTree = "<group>"; };
-		B49CD206A577ECD1CD15E285 /* SnapshotDataTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotDataTypes.swift; sourceTree = "<group>"; };
-		C6D07EF7B77E90D3593AD699 /* SupabaseConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseConfig.swift; sourceTree = "<group>"; };
 		1A0000B1286D400000000081 /* AuthEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthEngine.swift; sourceTree = "<group>"; };
 		1A0000B3286D400000000083 /* StorageMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageMode.swift; sourceTree = "<group>"; };
 		1A0000B5286D400000000085 /* SyncLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncLogger.swift; sourceTree = "<group>"; };
@@ -139,7 +133,15 @@
 		1A0000C1286D400000000091 /* CalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarService.swift; sourceTree = "<group>"; };
 		1A0000C3286D400000000093 /* ResetScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResetScrollView.swift; sourceTree = "<group>"; };
 		1A0000C5286D400000000095 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		1A0000C7286D400000000097 /* GoalCategory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalCategory.swift; sourceTree = "<group>"; };
+		1B6626249D3E4CBFA740956F /* PreviewModelContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewModelContainer.swift; sourceTree = "<group>"; };
 		2E5684B22F1C1FE1000A33E5 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		69853FC208E384B34801168A /* MissingSnapshotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissingSnapshotView.swift; sourceTree = "<group>"; };
+		A83E50FD9BC840E2A1847FB9 /* SnapshotService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotService.swift; sourceTree = "<group>"; };
+		B49CD206A577ECD1CD15E285 /* SnapshotDataTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotDataTypes.swift; sourceTree = "<group>"; };
+		C6D07EF7B77E90D3593AD699 /* SupabaseConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseConfig.swift; sourceTree = "<group>"; };
+		D382729BD51E13C68BF56155 /* SnapshotModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotModel.swift; sourceTree = "<group>"; };
+		EF01FA9E1D6240CDA0600363 /* ArchivedDataIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchivedDataIndicator.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -156,13 +158,13 @@
 		1A000023286D400000000013 = {
 			isa = PBXGroup;
 			children = (
-				1A000024286D400000000014 /* HabitTracker */,
+				1A000024286D400000000014,
 				2E5684AF2F1C1FE1000A33E5 /* Frameworks */,
 				1A000025286D400000000015 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		1A000024286D400000000014 /* HabitTracker */ = {
+		1A000024286D400000000014 = {
 			isa = PBXGroup;
 			children = (
 				1A000026286D400000000016 /* App */,
@@ -294,6 +296,7 @@
 			isa = PBXGroup;
 			children = (
 				1A00004B286D400000000030 /* GoalModel.swift */,
+				1A0000C7286D400000000097 /* GoalCategory.swift */,
 				1A000076286D400000000055 /* ObligationModel.swift */,
 				1A000084286D400000000064 /* WeeklyNoteModel.swift */,
 				D382729BD51E13C68BF56155 /* SnapshotModel.swift */,
@@ -408,6 +411,7 @@
 				1A000042286D40000000002C /* GoalsViewModel.swift in Sources */,
 				1A000048286D40000000002F /* GoalTabPicker.swift in Sources */,
 				1A00004A286D400000000030 /* GoalModel.swift in Sources */,
+				1A0000C6286D400000000096 /* GoalCategory.swift in Sources */,
 				1A000054286D400000000035 /* ProgressCalculator.swift in Sources */,
 				1A000056286D400000000036 /* GoalFormSheet.swift in Sources */,
 				1A000058286D400000000039 /* SettingsStore.swift in Sources */,
@@ -585,18 +589,18 @@
 				CODE_SIGN_ENTITLEMENTS = HabitTracker.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 5LUS6FWD8Q;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = FORGE;
+				INFOPLIST_KEY_CFBundleDisplayName = "SHIFT N01";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
-				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -619,18 +623,18 @@
 				CODE_SIGN_ENTITLEMENTS = HabitTrackerRelease.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 5LUS6FWD8Q;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = FORGE;
+				INFOPLIST_KEY_CFBundleDisplayName = "SHIFT N01";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
-				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

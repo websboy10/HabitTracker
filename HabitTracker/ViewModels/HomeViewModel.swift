@@ -37,7 +37,7 @@ final class HomeViewModel {
     // MARK: - Today's Obligations
 
     /// Fetches today's obligations with goal information
-    /// Category info is available directly on GoalModel via categoryName and categoryColorHex.
+    /// Category info is available directly on GoalModel via category relationship + display helpers.
     func fetchTodaysObligations() -> [(obligation: ObligationModel, goal: GoalModel)] {
         obligationScheduler?.fetchTodaysObligations() ?? []
     }
